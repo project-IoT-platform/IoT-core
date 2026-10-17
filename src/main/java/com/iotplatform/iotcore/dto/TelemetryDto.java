@@ -7,7 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public record TelemetryRequest(UUID deviceId, Instant time, Short telemetryType, Double value) {
+public record TelemetryDto(UUID deviceId, Instant time, Short telemetryType, Double value) {
 
     public void validate() {
         Map<String, String> errors = new LinkedHashMap<>();
