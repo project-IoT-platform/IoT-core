@@ -3,7 +3,7 @@ package com.iotplatform.iotcore;
 import com.iotplatform.iotcore.controller.DeviceController;
 import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
-import com.iotplatform.iotcore.db.Database;
+import com.iotplatform.iotcore.db.DatabaseUtils;
 import com.iotplatform.iotcore.http.HttpApi;
 import com.iotplatform.iotcore.repository.DeviceRepository;
 import com.iotplatform.iotcore.repository.PostgresDeviceRepository;
@@ -20,11 +20,10 @@ public class Main {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
 
         // 1. База данных и репозитории (Лёша)
-        Database database = new Database();
-        database.initSchema();
-        DeviceRepository deviceRepository = new PostgresDeviceRepository(database);
-        UserRepository userRepository = new PostgresUserRepository(database);
-        TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(database);
+        DatabaseUtils databaseUtils = DatabaseUtils.fromProperties("db.properties");
+        DeviceRepository deviceRepository = new PostgresDeviceRepository(databaseUtils);
+        UserRepository userRepository = new PostgresUserRepository(databaseUtils);
+        TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(databaseUtils);
 
         // 2. Сервисы (Маша)
         DeviceService deviceService = new DeviceService(deviceRepository, userRepository);

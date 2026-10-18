@@ -1,6 +1,7 @@
 package com.iotplatform.iotcore.entity;
 
 import com.iotplatform.iotcore.model.DeviceState;
+
 import java.time.Instant;
 import java.util.UUID;
 

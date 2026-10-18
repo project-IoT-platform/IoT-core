@@ -1,0 +1,5 @@
+CREATE USER iot_app WITH PASSWORD '67DORA67';
+
+GRANT CONNECT ON DATABASE postgres TO iot_app;
+GRANT USAGE ON SCHEMA public TO iot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON users, device, telemetry TO iot_app;
