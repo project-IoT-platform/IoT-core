@@ -2,7 +2,9 @@ package com.iotplatform.iotcore.db;
 
 import com.iotplatform.iotcore.exception.DatabaseException;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -72,6 +74,21 @@ public class DatabaseUtils {
     }
 
     public void initSchema() {
-        System.out.println("TODO Лёша: создание таблиц из schema.sql ещё не написано");
+        String script;
+        try (InputStream in = DatabaseUtils.class.getResourceAsStream("/schema.sql")) {
+            if (in == null) {
+                throw new RuntimeException("Не найден /schema.sql в resources");
+            }
+            script = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new RuntimeException("Не удалось прочитать schema.sql", e);
+        }
+
+        try (Connection conn = getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute(script);
+        } catch (SQLException e) {
+            throw new RuntimeException("Ошибка при выполнении schema.sql", e);
+        }
     }
 }

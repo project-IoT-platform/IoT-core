@@ -20,23 +20,24 @@ public class Main {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
 
         // 1. База данных и репозитории (Лёша)
-        DatabaseUtils databaseUtils = DatabaseUtils.fromProperties("db.properties");
+        DatabaseUtils databaseUtils = DatabaseUtils.fromProperties("/db.properties");
+        databaseUtils.initSchema();
         DeviceRepository deviceRepository = new PostgresDeviceRepository(databaseUtils);
         UserRepository userRepository = new PostgresUserRepository(databaseUtils);
         TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(databaseUtils);
 
         // 2. Сервисы (Маша)
-        DeviceService deviceService = new DeviceService(deviceRepository, userRepository);
-        UserService userService = new UserService(userRepository);
-        TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository);
+        //DeviceService deviceService = new DeviceService(deviceRepository, userRepository);
+        //UserService userService = new UserService(userRepository);
+        //TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository);
 
         // 3. Контроллеры (Маша)
-        DeviceController deviceController = new DeviceController(deviceService);
-        UserController userController = new UserController(userService);
-        TelemetryController telemetryController = new TelemetryController(telemetryService);
+        //DeviceController deviceController = new DeviceController(deviceService);
+        //UserController userController = new UserController(userService);
+        //TelemetryController telemetryController = new TelemetryController(telemetryService);
 
         // 4. HTTP-сервер (Ашур)
-        HttpApi api = new HttpApi(port, deviceController, userController, telemetryController);
-        api.start();
+        //HttpApi api = new HttpApi(port, deviceController, userController, telemetryController);
+        //api.start();
     }
 }
