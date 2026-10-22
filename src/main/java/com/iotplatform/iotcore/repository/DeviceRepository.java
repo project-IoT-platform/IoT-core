@@ -8,7 +8,6 @@ import java.util.UUID;
 
 public interface DeviceRepository {
     Optional<DeviceEntity> findById(UUID id);   // ищет устройство в бае по id
-    List<DeviceEntity> findAll(); // даёт список всех устройств
     boolean existsById(UUID id); // существует ли устройство с таким id?
     DeviceEntity save(DeviceEntity device);     // создаёт, а если id уже есть, обновляет
     boolean deleteById(UUID id);                // true, если что-то удалили

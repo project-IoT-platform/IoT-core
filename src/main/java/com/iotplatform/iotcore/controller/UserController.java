@@ -4,7 +4,6 @@ import com.iotplatform.iotcore.dto.UserDto;
 import com.iotplatform.iotcore.dto.UserResponse;
 import com.iotplatform.iotcore.service.UserService;
 
-import java.util.List;
 import java.util.UUID;
 
 public class UserController {
@@ -12,10 +11,6 @@ public class UserController {
 
     public UserController(UserService service) {
         this.service = service;
-    }
-
-    public List<UserResponse> getAll() {
-        return service.findAll();
     }
 
     public UserResponse getById(UUID id) {

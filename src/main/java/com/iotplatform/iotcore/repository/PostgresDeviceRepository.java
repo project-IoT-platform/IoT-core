@@ -7,8 +7,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-// ===== ДЛЯ ЛЁШИ =====
-
 public class PostgresDeviceRepository implements DeviceRepository {
     private final Database database;
 
@@ -20,12 +18,6 @@ public class PostgresDeviceRepository implements DeviceRepository {
     public Optional<DeviceEntity> findById(UUID id) {
         // TODO Лёша: достать данные и таблицы и таблицы devise где device_id = ...
         // если строки нет, вернуть Optional.empty()
-        throw new UnsupportedOperationException("TODO Лёша");
-    }
-
-    @Override
-    public List<DeviceEntity> findAll() {
-        // TODO Лёша: дстать данные из таблицы device
         throw new UnsupportedOperationException("TODO Лёша");
     }
 

@@ -8,7 +8,6 @@ import com.iotplatform.iotcore.repository.DeviceRepository;
 import com.iotplatform.iotcore.repository.UserRepository;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -21,10 +20,6 @@ public class DeviceService {
         this.users = users;
     }
 
-    public List<DeviceDto> findAll() {
-        return devices.findAll().stream().map(this::toDto).toList();
-    }
-
     public DeviceDto findById(UUID id) {
         return devices.findById(id).map(this::toDto)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
@@ -32,8 +27,8 @@ public class DeviceService {
 
     public void register(DeviceDto dto) {
         dto.validate();
-        checkUserExists(dto.userId());
-        Instant lastDataTime = devices.findById(dto.deviceId())
+        checkUserExists(dto.getUserId());
+        Instant lastDataTime = devices.findById(dto.getDeviceId())
                 .map(DeviceEntity::getLastDataTime).orElse(null);
         devices.save(toEntity(dto, lastDataTime));
     }
@@ -41,7 +36,7 @@ public class DeviceService {
     public DeviceDto update(UUID id, DeviceDto dto) {
         DeviceDto withId = dto.withDeviceId(id);
         withId.validate();
-        checkUserExists(withId.userId());
+        checkUserExists(withId.getUserId());
         DeviceEntity existing = devices.findById(id)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
         return toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
@@ -60,20 +55,12 @@ public class DeviceService {
     }
 
     private DeviceEntity toEntity(DeviceDto d, Instant lastDataTime) {
-        return new DeviceEntity(d.deviceId(), d.userId(), d.name(), lastDataTime,
-                d.batteryLevel(), d.manufacturer(), d.state(), d.geolocation());
+        return new DeviceEntity(d.getDeviceId(), d.getUserId(), d.getName(), lastDataTime,
+                d.getBatteryLevel(), d.getManufacturer(), d.getState(), d.getGeolocation());
     }
 
     private DeviceDto toDto(DeviceEntity e) {
-        return new DeviceDto(
-                e.getId(),
-                e.getUserId(),
-                e.getName(),
-                e.getManufacturer(),
-                e.getBatteryLevel(),
-                e.getState(),
-                e.getGeolocation(),
-                e.getLastDataTime()
-        );
+        return new DeviceDto(e.getId(), e.getUserId(), e.getName(), e.getManufacturer(),
+                e.getBatteryLevel(), e.getState(), e.getGeolocation(), e.getLastDataTime());
     }
 }
