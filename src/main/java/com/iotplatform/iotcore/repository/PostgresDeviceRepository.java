@@ -27,12 +27,6 @@ public class PostgresDeviceRepository implements DeviceRepository {
     }
 
     @Override
-    public List<DeviceEntity> findAll() {
-        // TODO Лёша: дстать данные из таблицы device
-        throw new UnsupportedOperationException("TODO Лёша");
-    }
-
-    @Override
     public boolean existsById(UUID id) {
         return !databaseUtils.query("SELECT 1 FROM device WHERE id = ?",
                 rs -> 1, id).isEmpty();

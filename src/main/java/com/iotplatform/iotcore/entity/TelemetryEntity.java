@@ -4,8 +4,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record TelemetryEntity(
-        UUID id,              // PK: event_id
-        UUID deviceId,        // FK на устройство
+        UUID id,
+        UUID deviceId,
         Instant time,
         Short telemetryType,
         Double value) {

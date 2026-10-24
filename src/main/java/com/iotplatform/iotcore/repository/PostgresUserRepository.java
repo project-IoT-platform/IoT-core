@@ -25,13 +25,7 @@ public class PostgresUserRepository implements UserRepository {
         return databaseUtils.query("SELECT * FROM users WHERE id = ?",
                 PostgresUserRepository::mapRow, id).stream().findFirst();
     }
-
-    @Override
-    public List<UserEntity> findAll() {
-        // TODO Лёша
-        throw new UnsupportedOperationException("TODO Лёша");
-    }
-
+  
     @Override
     public boolean existsById(UUID id) {
         return !databaseUtils.query("SELECT 1 FROM users WHERE id = ?",
@@ -64,5 +58,17 @@ public class PostgresUserRepository implements UserRepository {
                     rs.getBytes("password_hash"),
                     UserRole.valueOf(rs.getString("user_role").toUpperCase(Locale.ROOT)));
         } catch (SQLException e) {throw new DatabaseException("Ошибка преобразования в класс Java", e); }
+      
+    @Override
+    public Optional<byte[]> findPasswordHashByEmail(String email) {
+        // TODO Лёша: достать password_hash и таблицы users где email = ...
+        // Почта уже нормализована сервисом, сравнивать точно. Если пользователя нет, Optional.empty().
+        throw new UnsupportedOperationException("TODO Лёша");
+    }
+
+    @Override
+    public boolean existsByEmail(String email) {
+        // TODO Лёша: есть ли в таблице строка где email = ...
+        throw new UnsupportedOperationException("TODO Лёша");
     }
 }

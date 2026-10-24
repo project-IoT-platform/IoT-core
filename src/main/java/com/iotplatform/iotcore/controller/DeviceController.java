@@ -2,19 +2,17 @@ package com.iotplatform.iotcore.controller;
 
 import com.iotplatform.iotcore.dto.DeviceDto;
 import com.iotplatform.iotcore.service.DeviceService;
+import com.iotplatform.iotcore.service.NotificationService;
 
-import java.util.List;
 import java.util.UUID;
 
 public class DeviceController {
     private final DeviceService service;
+    private final NotificationService notifications;
 
-    public DeviceController(DeviceService service) {
+    public DeviceController(DeviceService service, NotificationService notifications) {
         this.service = service;
-    }
-
-    public List<DeviceDto> getAll() {
-        return service.findAll();
+        this.notifications = notifications;
     }
 
     public DeviceDto getById(UUID id) {
@@ -23,10 +21,14 @@ public class DeviceController {
 
     public void register(DeviceDto dto) {
         service.register(dto);
+        notifications.notifyDeviceRegistered(dto);
+        notifications.checkBattery(dto);
     }
 
     public DeviceDto update(UUID id, DeviceDto dto) {
-        return service.update(id, dto);
+        DeviceDto updated = service.update(id, dto);
+        notifications.checkBattery(updated);
+        return updated;
     }
 
     public void delete(UUID id) {
