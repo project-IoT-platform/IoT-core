@@ -4,7 +4,7 @@ import com.iotplatform.iotcore.controller.DeviceController;
 import com.iotplatform.iotcore.controller.NotificationController;
 import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
-import com.iotplatform.iotcore.db.Database;
+import com.iotplatform.iotcore.db.DatabaseUtils;
 import com.iotplatform.iotcore.http.HttpApi;
 import com.iotplatform.iotcore.repository.DeviceRepository;
 import com.iotplatform.iotcore.repository.PostgresDeviceRepository;
@@ -32,12 +32,12 @@ public class Main {
         double norm      = Double.parseDouble(System.getenv().getOrDefault("NORM", "25"));
         double deviation = Double.parseDouble(System.getenv().getOrDefault("DEVIATION", "5"));
 
-        Database database = new Database();
-        database.initSchema();
-        DeviceRepository deviceRepository = new PostgresDeviceRepository(database);
-        UserRepository userRepository = new PostgresUserRepository(database);
-        TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(database);
-        TelegramLinkRepository linkRepository = new PostgresTelegramLinkRepository(database);
+        DatabaseUtils databaseUtils = DatabaseUtils.fromProperties("/db.properties");
+        databaseUtils.initSchema();
+        DeviceRepository deviceRepository = new PostgresDeviceRepository(databaseUtils);
+        UserRepository userRepository = new PostgresUserRepository(databaseUtils);
+        TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(databaseUtils);
+        TelegramLinkRepository linkRepository = new PostgresTelegramLinkRepository(databaseUtils);
 
         TelegramClient telegram = new TelegramClient(botToken);
         NotificationService notificationService = new NotificationService(

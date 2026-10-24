@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16
-    container_name: iot-pg
+    container_name: iot-db
     environment:
       POSTGRES_DB: iot
       POSTGRES_USER: iot
@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - iot-pg-data:/var/lib/postgresql/data
+      - iot-db-data:/var/lib/postgresql/data
 
 volumes:
-  iot-pg-data:
+  iot-db-data:

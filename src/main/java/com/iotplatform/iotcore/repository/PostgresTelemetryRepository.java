@@ -1,25 +1,27 @@
 package com.iotplatform.iotcore.repository;
 
-import com.iotplatform.iotcore.db.Database;
+import com.iotplatform.iotcore.db.DatabaseUtils;
 import com.iotplatform.iotcore.entity.TelemetryEntity;
 
 import java.time.Instant;
 import java.util.OptionalDouble;
 import java.util.UUID;
 
-// ===== ДЛЯ ЛЁШИ =====
 // мб запись телеметрии и обновление lastDataTime на устройстве делать в одной транзакции?
 public class PostgresTelemetryRepository implements TelemetryRepository {
-    private final Database database;
+    private final DatabaseUtils databaseUtils;
 
-    public PostgresTelemetryRepository(Database database) {
-        this.database = database;
+    public PostgresTelemetryRepository(DatabaseUtils databaseUtils) {
+        this.databaseUtils = databaseUtils;
     }
 
     @Override
     public void save(TelemetryEntity telemetry) {
-        // TODO Лёша:
-        throw new UnsupportedOperationException("TODO Лёша");
+        databaseUtils.update(
+                "INSERT INTO telemetry (id, device_id, recorded_at, telemetry_type, value) "
+                        + "VALUES (?, ?, ?, ?, ?)",
+                telemetry.deviceId(), telemetry.time(), telemetry.telemetryType(), telemetry.value());
+
     }
 
     @Override
