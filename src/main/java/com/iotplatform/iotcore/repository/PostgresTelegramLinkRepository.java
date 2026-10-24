@@ -1,50 +1,62 @@
 package com.iotplatform.iotcore.repository;
 
-import com.iotplatform.iotcore.db.Database;
+import com.iotplatform.iotcore.db.DatabaseUtils;
+import com.iotplatform.iotcore.exception.DatabaseException;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.Optional;
 import java.util.UUID;
 
-// Таблица telegram_chats (создать в database.initSchema()):
-//
-//   CREATE TABLE IF NOT EXISTS telegram_chats (
-//       user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-//       chat_id BIGINT NOT NULL UNIQUE
-//   );
-
 public class PostgresTelegramLinkRepository implements TelegramLinkRepository {
-    private final Database database;
+    private final DatabaseUtils databaseUtils;
 
-    public PostgresTelegramLinkRepository(Database database) {
-        this.database = database;
+    public PostgresTelegramLinkRepository(DatabaseUtils databaseUtils) {
+        this.databaseUtils = databaseUtils;
     }
 
     @Override
     public Optional<UUID> findUserId(long chatId) {
-        // TODO Лёша: достать id польователя у которого chat id равен ...
-        // Если строки нет, вернуть Optional.empty().
-        throw new UnsupportedOperationException("TODO Лёша");
+        return databaseUtils.query("SELECT user_id FROM telegram_chats WHERE chat_id = ?",
+                rs -> rs.getObject("user_id", UUID.class), chatId).stream().findFirst();
     }
 
     @Override
     public Optional<Long> findChatId(UUID userId) {
-        // TODO Лёша: достать chat id где id равен ...
-        // Если строки нет, вернуть Optional.empty().
-        throw new UnsupportedOperationException("TODO Лёша");
+        return databaseUtils.query("SELECT chat_id FROM telegram_chats WHERE user_id = ?",
+                rs -> rs.getLong("chat_id"), userId).stream().findFirst();
     }
 
     @Override
-    public void save(long chatId, UUID userId) {
-        // TODO Лёша: две команды в одной транзакции:
-        //   1) удалить и таблицы telegram_chats строки где chat id равен ... или id равен ...
-        //   2) вставить в таблицу новую строку id и chat id
-        // (так старая привязка этого пользователя или этого чата заменяется новой)
-        throw new UnsupportedOperationException("TODO Лёша");
+    public void save(long chatId, UUID userId) throws DatabaseException {
+        try (Connection conn = databaseUtils.getConnection()) {
+            conn.setAutoCommit(false); // начинаем транзакцию: изменения применятся только после commit()
+            try (PreparedStatement delete = conn.prepareStatement(
+                    "DELETE FROM telegram_chats WHERE chat_id = ? OR user_id = ?");
+                 PreparedStatement insert = conn.prepareStatement(
+                         "INSERT INTO telegram_chats (user_id, chat_id) VALUES (?, ?)")) {
+
+                delete.setLong(1, chatId);
+                delete.setObject(2, userId);
+                delete.executeUpdate();
+
+                insert.setObject(1, userId);
+                insert.setLong(2, chatId);
+                insert.executeUpdate();
+
+                conn.commit();
+            } catch (SQLException e) {
+                conn.rollback(); // если любая из двух команд упала, откатываем обе
+                throw new DatabaseException("Ошибка сохранения привязки Telegram-чата", e);
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("Ошибка транзакции при сохранении привязки Telegram-чата", e);
+        }
     }
 
     @Override
     public void delete(long chatId) {
-        // TODO Лёша: удалить и таблицы по начению chai id
-        throw new UnsupportedOperationException("TODO Лёша");
+        databaseUtils.update("DELETE FROM telegram_chats WHERE chat_id = ?", chatId);
     }
 }

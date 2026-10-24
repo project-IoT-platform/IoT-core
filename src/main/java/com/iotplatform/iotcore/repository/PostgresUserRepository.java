@@ -8,7 +8,6 @@ import com.iotplatform.iotcore.model.UserRole;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,7 +24,7 @@ public class PostgresUserRepository implements UserRepository {
         return databaseUtils.query("SELECT * FROM users WHERE id = ?",
                 PostgresUserRepository::mapRow, id).stream().findFirst();
     }
-  
+
     @Override
     public boolean existsById(UUID id) {
         return !databaseUtils.query("SELECT 1 FROM users WHERE id = ?",
@@ -37,7 +36,7 @@ public class PostgresUserRepository implements UserRepository {
         databaseUtils.update(
                 "INSERT INTO users (id, username, email, phone, birthdate, password_hash, user_role) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?::role)",
-                user.id(), user.username(), user.email(), user.phone(), user.passwordHash(), user.role());
+                user.getId(), user.getUsername(), user.getEmail(), user.getPhone(), user.getDateOfBirth(), user.getPasswordHash(), user.getRole());
 
         return user;
     }
@@ -45,6 +44,18 @@ public class PostgresUserRepository implements UserRepository {
     @Override
     public boolean deleteById(UUID id) {
         return databaseUtils.update("DELETE FROM users WHERE id = ?", id) > 0;
+    }
+
+    @Override
+    public Optional<byte[]> findPasswordHashByEmail(String email) {
+        return databaseUtils.query("SELECT password_hash FROM users WHERE email = ?",
+                rs -> rs.getBytes("password_hash"), email).stream().findFirst();
+    }
+
+    @Override
+    public boolean existsByEmail(String email) {
+        return !databaseUtils.query("SELECT 1 FROM users WHERE email = ?",
+                rs -> 1, email).isEmpty();
     }
 
     private static UserEntity mapRow(ResultSet rs) throws DatabaseException {
@@ -57,18 +68,8 @@ public class PostgresUserRepository implements UserRepository {
                     rs.getObject("birthdate", LocalDate.class),
                     rs.getBytes("password_hash"),
                     UserRole.valueOf(rs.getString("user_role").toUpperCase(Locale.ROOT)));
-        } catch (SQLException e) {throw new DatabaseException("Ошибка преобразования в класс Java", e); }
-      
-    @Override
-    public Optional<byte[]> findPasswordHashByEmail(String email) {
-        // TODO Лёша: достать password_hash и таблицы users где email = ...
-        // Почта уже нормализована сервисом, сравнивать точно. Если пользователя нет, Optional.empty().
-        throw new UnsupportedOperationException("TODO Лёша");
-    }
-
-    @Override
-    public boolean existsByEmail(String email) {
-        // TODO Лёша: есть ли в таблице строка где email = ...
-        throw new UnsupportedOperationException("TODO Лёша");
+        } catch (SQLException e) {
+            throw new DatabaseException("Ошибка преобразования в класс Java", e);
+        }
     }
 }

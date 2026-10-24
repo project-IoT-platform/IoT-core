@@ -43,3 +43,8 @@ CREATE TABLE IF NOT EXISTS telemetry (
     CONSTRAINT telemetry_device_fkey
         FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS telegram_chats (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    chat_id BIGINT NOT NULL UNIQUE
+);
