@@ -44,7 +44,12 @@ public class DatabaseUtils {
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
             for (int i = 0; i < params.length; i++) {
-                ps.setObject(i + 1, params[i]);
+                Object p = params[i];
+                if (p instanceof Enum<?> e) {
+                    ps.setObject(i + 1, e.name(), Types.OTHER);   // enum -> строка (работает и для varchar, и для enum-типа в Postgres)
+                } else {
+                    ps.setObject(i + 1, p);
+                }
             }
 
             return ps.executeUpdate();

@@ -6,49 +6,56 @@ import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
 import com.iotplatform.iotcore.db.DatabaseUtils;
 import com.iotplatform.iotcore.http.HttpApi;
+import com.iotplatform.iotcore.notification.IotCorePlatformData;
+import com.iotplatform.iotcore.notification.NotificationServiceAdapter;
+import com.iotplatform.iotcore.notification.TelegramLinksAdapter;
 import com.iotplatform.iotcore.repository.DeviceRepository;
-import com.iotplatform.iotcore.repository.PostgresDeviceRepository;
 import com.iotplatform.iotcore.repository.PostgresTelegramLinkRepository;
-import com.iotplatform.iotcore.repository.PostgresTelemetryRepository;
+import com.iotplatform.iotcore.repository.OffsetTelemetryRepository;
 import com.iotplatform.iotcore.repository.PostgresUserRepository;
 import com.iotplatform.iotcore.repository.TelegramLinkRepository;
 import com.iotplatform.iotcore.repository.TelemetryRepository;
+import com.iotplatform.iotcore.repository.UpsertDeviceRepository;
 import com.iotplatform.iotcore.repository.UserRepository;
 import com.iotplatform.iotcore.service.DeviceService;
 import com.iotplatform.iotcore.service.NotificationService;
 import com.iotplatform.iotcore.service.TelemetryService;
 import com.iotplatform.iotcore.service.UserService;
-import com.iotplatform.iotcore.telegram.TelegramBot;
-import com.iotplatform.iotcore.telegram.TelegramClient;
+import com.iotplatform.notification.NotificationModule;
+import com.iotplatform.notification.config.NotificationConfig;
 
 public class Main {
     public static void main(String[] args) {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
 
-        // Токен бота берём ТОЛЬКО из переменной окружения TELEGRAM_BOT_TOKEN, в коде его хранить нельзя.
-        // Если переменной нет, бот просто не запустится (остальное будет работать).
-        String botToken = System.getenv("TELEGRAM_BOT_TOKEN");
-        // стартовые значения нормы и отклонения (каждый пользователь потом меняет свои через бота)
-        double norm      = Double.parseDouble(System.getenv().getOrDefault("NORM", "25"));
-        double deviation = Double.parseDouble(System.getenv().getOrDefault("DEVIATION", "5"));
-
         DatabaseUtils databaseUtils = DatabaseUtils.fromProperties("/db.properties");
         databaseUtils.initSchema();
-        DeviceRepository deviceRepository = new PostgresDeviceRepository(databaseUtils);
+
+        // ИЗМЕНЕНО: вместо PostgresDeviceRepository используется UpsertDeviceRepository
+        // (исправленное сохранение и чтение устройства, класс тиммейтов не тронут)
+        DeviceRepository deviceRepository = new UpsertDeviceRepository(databaseUtils);
         UserRepository userRepository = new PostgresUserRepository(databaseUtils);
-        TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(databaseUtils);
+        TelemetryRepository telemetryRepository = new OffsetTelemetryRepository(databaseUtils);
         TelegramLinkRepository linkRepository = new PostgresTelegramLinkRepository(databaseUtils);
 
-        TelegramClient telegram = new TelegramClient(botToken);
-        NotificationService notificationService = new NotificationService(
-                telegram, deviceRepository, linkRepository, telemetryRepository, norm, deviation);
-        TelegramBot bot = new TelegramBot(telegram, notificationService, userRepository, linkRepository);
-        bot.start();
-        Runtime.getRuntime().addShutdownHook(new Thread(bot::stop));
+        // NotificationService: Telegram-бот + email.
+        // Секреты берутся из переменных окружения (TELEGRAM_BOT_TOKEN, SMTP_*, NORM, DEVIATION)
+        // или из файла по пути NOTIFICATION_CONFIG_FILE. В коде секретов нет.
+        // Без токена бот не запустится, без SMTP_HOST email выключен, остальное работает.
+        NotificationConfig notificationConfig = NotificationConfig.fromEnvironment();
+        NotificationModule notifications = NotificationModule.create(notificationConfig,
+                new IotCorePlatformData(deviceRepository, userRepository, telemetryRepository),
+                new TelegramLinksAdapter(linkRepository));
+        notifications.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(notifications::close));
+        NotificationService notificationService = new NotificationServiceAdapter(notifications.service());
 
         DeviceService deviceService = new DeviceService(deviceRepository, userRepository);
         UserService userService = new UserService(userRepository);
         TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository);
+
+        // УДАЛЕНО: отладочные блоки «РУЧНАЯ ПРОВЕРКА» и «ТЕСТ last_trans».
+        // Они писали в БД при каждом старте и обходили ошибку чтения, которая теперь исправлена.
 
         HttpApi api = new HttpApi(port,
                 new DeviceController(deviceService, notificationService),
