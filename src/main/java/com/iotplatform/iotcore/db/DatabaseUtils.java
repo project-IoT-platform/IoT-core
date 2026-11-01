@@ -9,7 +9,8 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-
+import java.time.Instant;
+import java.time.ZoneOffset;
 public class DatabaseUtils {
 
     private final String url;
@@ -43,9 +44,7 @@ public class DatabaseUtils {
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            for (int i = 0; i < params.length; i++) {
-                ps.setObject(i + 1, params[i]);
-            }
+            setParams(ps, params);
 
             return ps.executeUpdate();
         } catch (SQLException e) {
@@ -57,9 +56,7 @@ public class DatabaseUtils {
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            for (int i = 0; i < params.length; i++) {
-                ps.setObject(i + 1, params[i]);
-            }
+            setParams(ps, params);
 
             try (ResultSet rs = ps.executeQuery()) {
                 List<T> result = new ArrayList<>();
@@ -70,6 +67,18 @@ public class DatabaseUtils {
             }
         } catch (SQLException e) {
             throw new DatabaseException("ошибка SQL-запроса", e);
+        }
+    }
+
+    private void setParams(PreparedStatement ps, Object[] params) throws SQLException {
+        for (int i = 0; i < params.length; i++) {
+            Object p = params[i];
+            if (p instanceof Instant) {
+                p = ((Instant) p).atOffset(ZoneOffset.UTC);   // Instant -> OffsetDateTime
+            } else if (p instanceof Enum) {
+                p = ((Enum<?>) p).name();                      // enum -> строка с его именем
+            }
+            ps.setObject(i + 1, p);
         }
     }
 

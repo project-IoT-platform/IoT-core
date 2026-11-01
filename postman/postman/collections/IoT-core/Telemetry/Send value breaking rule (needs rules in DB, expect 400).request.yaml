@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{baseUrl}}/api/telemetry"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"deviceId":"{{deviceId}}","time":"{{$isoTimestamp}}","telemetryType":2,"value":120}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('400 Bad Request', () => pm.response.to.have.status(400));
+      pm.test('в теле есть описание правила', () => pm.expect(pm.response.text()).to.include('нарушает правило'));
+    language: text/javascript
+order: 2000

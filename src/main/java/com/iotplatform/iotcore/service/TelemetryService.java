@@ -12,10 +12,12 @@ import java.util.UUID;
 public class TelemetryService {
     private final DeviceRepository devices;
     private final TelemetryRepository telemetry;
+    private final RuleEngine ruleEngine;
 
-    public TelemetryService(DeviceRepository devices, TelemetryRepository telemetry) {
+    public TelemetryService(DeviceRepository devices, TelemetryRepository telemetry, RuleEngine ruleEngine) {
         this.devices = devices;
         this.telemetry = telemetry;
+        this.ruleEngine = ruleEngine;
     }
 
     public void process(TelemetryDto dto) {
@@ -23,10 +25,11 @@ public class TelemetryService {
         DeviceEntity device = devices.findById(dto.deviceId())
                 .orElseThrow(() -> new DeviceNotFoundException(dto.deviceId()));
 
+        ruleEngine.check(dto);   // <-- новое: если правило нарушено, дальше не идём
+
         telemetry.save(new TelemetryEntity(UUID.randomUUID(), dto.deviceId(),
                 dto.time(), dto.telemetryType(), dto.value()));
 
-        device.setLastDataTime(dto.time());
-        devices.save(device);
+        devices.updateLastDataTime(dto.deviceId(), dto.time());
     }
 }

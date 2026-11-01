@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{baseUrl}}/api/devices/{{deviceId}}"
+method: PUT
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"userId":"{{userId}}","name":"Датчик 2","manufacturer":"ACME","state":"OFF","batteryLevel":70,"geolocation":"bedroom"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      pm.test('состояние OFF', () => pm.expect(pm.response.json().state).to.eql('OFF'));
+    language: text/javascript
+order: 3000

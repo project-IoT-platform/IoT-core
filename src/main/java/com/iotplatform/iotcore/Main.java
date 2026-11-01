@@ -6,18 +6,8 @@ import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
 import com.iotplatform.iotcore.db.DatabaseUtils;
 import com.iotplatform.iotcore.http.HttpApi;
-import com.iotplatform.iotcore.repository.DeviceRepository;
-import com.iotplatform.iotcore.repository.PostgresDeviceRepository;
-import com.iotplatform.iotcore.repository.PostgresTelegramLinkRepository;
-import com.iotplatform.iotcore.repository.PostgresTelemetryRepository;
-import com.iotplatform.iotcore.repository.PostgresUserRepository;
-import com.iotplatform.iotcore.repository.TelegramLinkRepository;
-import com.iotplatform.iotcore.repository.TelemetryRepository;
-import com.iotplatform.iotcore.repository.UserRepository;
-import com.iotplatform.iotcore.service.DeviceService;
-import com.iotplatform.iotcore.service.NotificationService;
-import com.iotplatform.iotcore.service.TelemetryService;
-import com.iotplatform.iotcore.service.UserService;
+import com.iotplatform.iotcore.repository.*;
+import com.iotplatform.iotcore.service.*;
 import com.iotplatform.iotcore.telegram.TelegramBot;
 import com.iotplatform.iotcore.telegram.TelegramClient;
 
@@ -38,6 +28,8 @@ public class Main {
         UserRepository userRepository = new PostgresUserRepository(databaseUtils);
         TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(databaseUtils);
         TelegramLinkRepository linkRepository = new PostgresTelegramLinkRepository(databaseUtils);
+        RuleRepository ruleRepository = new PostgresRuleRepository(databaseUtils);
+        RuleEngine ruleEngine = new RuleEngine(ruleRepository);
 
         TelegramClient telegram = new TelegramClient(botToken);
         NotificationService notificationService = new NotificationService(
@@ -48,7 +40,7 @@ public class Main {
 
         DeviceService deviceService = new DeviceService(deviceRepository, userRepository);
         UserService userService = new UserService(userRepository);
-        TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository);
+        TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository, ruleEngine);
 
         HttpApi api = new HttpApi(port,
                 new DeviceController(deviceService, notificationService),

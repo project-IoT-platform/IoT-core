@@ -9,7 +9,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -38,9 +37,14 @@ public class PostgresDeviceRepository implements DeviceRepository {
         databaseUtils.update(
                 "INSERT INTO device (id, user_id, name, last_trans, charge_level, "
                         + "manufacturer, device_state, geolocation) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?::state, ?)",
-                device.getId(), device.getUserId(), device.getName(), device.getLastDataTime(), device.getBatteryLevel(),
-                device.getManufacturer(), device.getState(), device.getGeolocation());
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?::state, ?) "
+                        + "ON CONFLICT (id) DO UPDATE SET "
+                        + "user_id = EXCLUDED.user_id, name = EXCLUDED.name, "
+                        + "last_trans = EXCLUDED.last_trans, charge_level = EXCLUDED.charge_level, "
+                        + "manufacturer = EXCLUDED.manufacturer, device_state = EXCLUDED.device_state, "
+                        + "geolocation = EXCLUDED.geolocation",
+                device.getId(), device.getUserId(), device.getName(), device.getLastDataTime(),
+                device.getBatteryLevel(), device.getManufacturer(), device.getState(), device.getGeolocation());
 
         return device;
     }
@@ -52,12 +56,18 @@ public class PostgresDeviceRepository implements DeviceRepository {
 
     private static DeviceEntity mapRow(ResultSet rs) throws DatabaseException { // преобразование результата запроса к бд в Java-объект
         try {
+            OffsetDateTime lastTrans = rs.getObject("last_trans", OffsetDateTime.class);
+            Instant lastDataTime = lastTrans == null ? null : lastTrans.toInstant();
+
+            short charge = rs.getShort("charge_level");
+            Integer batteryLevel = rs.wasNull() ? null : (int) charge;
+
             return new DeviceEntity(
                     rs.getObject("id", UUID.class),
                     rs.getObject("user_id", UUID.class),
                     rs.getString("name"),
-                    rs.getObject("last_trans", OffsetDateTime.class).toInstant(),
-                    (int) rs.getShort("charge_level"),
+                    lastDataTime,
+                    batteryLevel,
                     rs.getString("manufacturer"),
                     DeviceState.valueOf(rs.getString("device_state")),
                     rs.getString("geolocation"));
@@ -65,7 +75,7 @@ public class PostgresDeviceRepository implements DeviceRepository {
             throw new DatabaseException("Ошибка преобразования в класс Java", e);
         }
     }
-
+    @Override
     public int updateLastDataTime(UUID id, Instant lastTrans) { //для обновления из телеметрии
         return databaseUtils.update("UPDATE device SET last_trans = ? WHERE id = ?", lastTrans, id);
     }

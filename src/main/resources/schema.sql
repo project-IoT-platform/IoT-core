@@ -48,3 +48,24 @@ CREATE TABLE IF NOT EXISTS telegram_chats (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     chat_id BIGINT NOT NULL UNIQUE
 );
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rule_operator') THEN
+        CREATE TYPE rule_operator AS ENUM ('GE', 'LE', 'GT', 'LT', 'EQ', 'NE');
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS rule (
+    id UUID PRIMARY KEY,
+    telemetry_type SMALLINT NOT NULL,
+    operator rule_operator NOT NULL,
+    value FLOAT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS device_to_rule (
+    id UUID PRIMARY KEY,
+    rule_id UUID NOT NULL REFERENCES rule(id) ON DELETE CASCADE,
+    device_id UUID NOT NULL REFERENCES device(id) ON DELETE CASCADE,
+    UNIQUE (rule_id, device_id)
+);
