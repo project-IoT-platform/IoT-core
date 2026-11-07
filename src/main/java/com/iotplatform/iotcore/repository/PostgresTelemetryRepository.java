@@ -21,7 +21,9 @@ public class PostgresTelemetryRepository implements TelemetryRepository {
         databaseUtils.update(
                 "INSERT INTO telemetry (id, device_id, recorded_at, telemetry_type, value) "
                         + "VALUES (?, ?, ?, ?, ?)",
-                telemetry.id(), telemetry.deviceId(), telemetry.time(), telemetry.telemetryType(), telemetry.value());
+                // ИСПРАВЛЕНО: Instant -> OffsetDateTime (драйвер PostgreSQL не принимает Instant, был HTTP 500)
+                telemetry.id(), telemetry.deviceId(), telemetry.time().atOffset(ZoneOffset.UTC),
+                telemetry.telemetryType(), telemetry.value());
 
     }
 

@@ -14,6 +14,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class UserService {
+    private static final System.Logger LOG = System.getLogger(UserService.class.getName());
+
     private final UserRepository users;
 
     public UserService(UserRepository users) {
@@ -49,7 +51,9 @@ public class UserService {
 
         UserEntity entity = new UserEntity(UUID.randomUUID(), dto.getUsername(), email,
                 dto.getPhone(), dto.getDateOfBirth(), PasswordHasher.hash(dto.getPassword()), role);
-        return toResponse(users.save(entity));
+        UserResponse created = toResponse(users.save(entity));
+        LOG.log(System.Logger.Level.INFO, "Пользователь " + created.id() + " (" + email + ") создан");
+        return created;
     }
 
     public UserResponse update(UUID id, UserDto dto) {
@@ -67,13 +71,16 @@ public class UserService {
         if (dto.getRole() != null) user.setRole(dto.getRole());
         if (dto.getPassword() != null) user.setPasswordHash(PasswordHasher.hash(dto.getPassword()));
 
-        return toResponse(users.save(user));
+        UserResponse updated = toResponse(users.save(user));
+        LOG.log(System.Logger.Level.INFO, "Пользователь " + id + " обновлён");
+        return updated;
     }
 
     public void delete(UUID id) {
         if (!users.deleteById(id)) {
             throw new UserNotFoundException(id);
         }
+        LOG.log(System.Logger.Level.INFO, "Пользователь " + id + " удалён");
     }
 
     private UserResponse toResponse(UserEntity e) {

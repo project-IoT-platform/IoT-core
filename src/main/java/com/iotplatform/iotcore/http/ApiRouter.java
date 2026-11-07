@@ -40,7 +40,35 @@ final class ApiRouter {
         this.notificationController = notificationController;
     }
 
+    /** Обрабатывает запрос и пишет в лог одну строку: метод, адрес, код ответа, время; при ошибке ещё и её текст. */
     Response handle(String method, String uri, byte[] body) {
+        long start = System.nanoTime();
+        Response response = route(method, uri, body);
+        long ms = (System.nanoTime() - start) / 1_000_000;
+        String line = method + " " + uri + " -> " + response.status() + " (" + ms + " мс)";
+        if (response.status() >= 500) {
+            LOG.log(System.Logger.Level.ERROR, line + " " + text(response.body()));
+        } else if (response.status() >= 400) {
+            LOG.log(System.Logger.Level.WARNING, line + " " + text(response.body())
+                    + (body != null && body.length > 0 ? " | тело запроса: " + hidePassword(text(body)) : ""));
+        } else {
+            LOG.log(System.Logger.Level.INFO, line);
+        }
+        return response;
+    }
+
+    private static String text(byte[] bytes) {
+        if (bytes == null) return "";
+        String s = new String(bytes, StandardCharsets.UTF_8);
+        return s.length() > 500 ? s.substring(0, 500) + "…" : s;
+    }
+
+    /** Пароль из тела запроса в лог не попадает. */
+    static String hidePassword(String json) {
+        return json.replaceAll("(\"password\"\\s*:\\s*)\"(?:[^\"\\\\]|\\\\.)*\"", "$1\"***\"");
+    }
+
+    private Response route(String method, String uri, byte[] body) {
         try {
             return dispatch(method, uri, body);
         } catch (JsonProcessingException e) {
@@ -52,7 +80,7 @@ final class ApiRouter {
         } catch (UnsupportedOperationException e) {
             return json(501, Map.of("error", "Ещё не реализовано: " + e.getMessage()));
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Внутренняя ошибка", e);
+            LOG.log(System.Logger.Level.ERROR, "Внутренняя ошибка при " + method + " " + uri, e);
             return json(500, Map.of("error", "Внутренняя ошибка сервера"));
         }
     }
