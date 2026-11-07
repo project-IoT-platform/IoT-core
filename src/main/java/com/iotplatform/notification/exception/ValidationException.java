@@ -1,0 +1,17 @@
+package com.iotplatform.notification.exception;
+
+import java.util.Map;
+
+/** Некорректные значения (например, отрицательное отклонение). errors: поле -> что не так. */
+public class ValidationException extends RuntimeException {
+    private final Map<String, String> errors;
+
+    public ValidationException(Map<String, String> errors) {
+        super("Некорректный запрос: " + errors);
+        this.errors = errors;
+    }
+
+    public Map<String, String> getErrors() {
+        return errors;
+    }
+}
