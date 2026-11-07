@@ -1,0 +1,9 @@
+$kind: http-request
+name: "Cleanup: delete device"
+url: "{{baseUrl}}/api/devices/{{deviceId}}"
+method: DELETE
+scripts:
+  - type: afterResponse
+    code: pm.test('204 No Content', () => pm.response.to.have.status(204));
+    language: text/javascript
+order: 7000

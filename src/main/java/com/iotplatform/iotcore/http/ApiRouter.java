@@ -20,6 +20,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 
+import com.iotplatform.iotcore.controller.RuleController;
+import com.iotplatform.iotcore.dto.RuleDto;
+import com.iotplatform.iotcore.exception.RuleNotFoundException;
+
 final class ApiRouter {
     private static final System.Logger LOG = System.getLogger(ApiRouter.class.getName());
 
@@ -29,15 +33,20 @@ final class ApiRouter {
     private final UserController userController;
     private final TelemetryController telemetryController;
     private final NotificationController notificationController;
+    private final RuleController ruleController;
+
 
     ApiRouter(DeviceController deviceController,
-              UserController userController,
-              TelemetryController telemetryController,
-              NotificationController notificationController) {
+                   UserController userController,
+                   TelemetryController telemetryController,
+                   NotificationController notificationController,
+                   RuleController ruleController) {
+        this.ruleController = ruleController;
         this.deviceController = deviceController;
         this.userController = userController;
         this.telemetryController = telemetryController;
         this.notificationController = notificationController;
+
     }
 
     Response handle(String method, String uri, byte[] body) {
@@ -47,7 +56,7 @@ final class ApiRouter {
             return json(400, Map.of("error", "Некорректный JSON: " + e.getOriginalMessage()));
         } catch (ValidationException e) {
             return json(400, e.getErrors());
-        } catch (DeviceNotFoundException | UserNotFoundException e) {
+        } catch (DeviceNotFoundException | UserNotFoundException | RuleNotFoundException e) {
             return json(404, Map.of("error", String.valueOf(e.getMessage())));
         } catch (UnsupportedOperationException e) {
             return json(501, Map.of("error", "Ещё не реализовано: " + e.getMessage()));
@@ -73,6 +82,15 @@ final class ApiRouter {
         if (parts.length >= 3 && parts[0].isEmpty() && parts[1].equals("api") && parts[2].equals("notifications")) {
             return notifications(method, parts, body);
         }
+
+        if (parts.length >= 5 && parts[0].isEmpty() && parts[1].equals("api")
+                && parts[2].equals("devices") && parts[4].equals("rules")) {
+            return deviceRules(method, parts);
+        }
+        if (parts.length >= 3 && parts[0].isEmpty() && parts[1].equals("api") && parts[2].equals("rules")) {
+            return rules(method, parts, body);
+        }
+
         if (parts.length < 3 || parts.length > 4 || !parts[0].isEmpty() || !parts[1].equals("api")) {
             return notFound();
         }
@@ -136,6 +154,52 @@ final class ApiRouter {
             return empty(202);
         }
         return methodNotAllowed();
+    }
+
+    private Response deviceRules(String method, String[] parts) {
+        UUID deviceId = uuid(parts[3]);
+        if (parts.length == 5) {
+            if (method.equals("GET")) return json(200, ruleController.getByDevice(deviceId));
+            return methodNotAllowed();
+        }
+        if (parts.length == 6) {
+            UUID ruleId = uuid(parts[5]);
+            if (method.equals("POST")) {
+                ruleController.attach(deviceId, ruleId);
+                return empty(204);
+            }
+            if (method.equals("DELETE")) {
+                ruleController.detach(deviceId, ruleId);
+                return empty(204);
+            }
+            return methodNotAllowed();
+        }
+        return notFound();
+    }
+
+    private Response rules(String method, String[] parts, byte[] body) throws IOException {
+        if (parts.length == 3) {
+            if (method.equals("POST")) return json(201, ruleController.create(read(body, RuleDto.class)));
+            return methodNotAllowed();
+        }
+        if (parts.length == 4) {
+            UUID id = uuid(parts[3]);
+            if (method.equals("GET")) return json(200, ruleController.getById(id));
+            if (method.equals("DELETE")) {
+                ruleController.delete(id);
+                return empty(204);
+            }
+            return methodNotAllowed();
+        }
+        return notFound();
+    }
+
+    private UUID uuid(String text) {
+        try {
+            return UUID.fromString(text);
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException(Map.of("id", "некорректный UUID в адресе"));
+        }
     }
 
     private Response notifications(String method, String[] parts, byte[] body) throws IOException {

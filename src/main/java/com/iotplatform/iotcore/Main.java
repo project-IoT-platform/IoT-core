@@ -1,9 +1,6 @@
 package com.iotplatform.iotcore;
 
-import com.iotplatform.iotcore.controller.DeviceController;
-import com.iotplatform.iotcore.controller.NotificationController;
-import com.iotplatform.iotcore.controller.TelemetryController;
-import com.iotplatform.iotcore.controller.UserController;
+import com.iotplatform.iotcore.controller.*;
 import com.iotplatform.iotcore.db.DatabaseUtils;
 import com.iotplatform.iotcore.http.HttpApi;
 import com.iotplatform.iotcore.repository.*;
@@ -41,12 +38,14 @@ public class Main {
         DeviceService deviceService = new DeviceService(deviceRepository, userRepository);
         UserService userService = new UserService(userRepository);
         TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository, ruleEngine);
+        RuleService ruleService = new RuleService(ruleRepository, deviceRepository);
 
         HttpApi api = new HttpApi(port,
                 new DeviceController(deviceService, notificationService),
                 new UserController(userService),
                 new TelemetryController(telemetryService, notificationService),
-                new NotificationController(notificationService));
+                new NotificationController(notificationService),
+                new RuleController(ruleService));
         api.start();
     }
 }

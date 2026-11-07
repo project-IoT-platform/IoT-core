@@ -1,0 +1,16 @@
+$kind: http-request
+name: "Create rule: humidity <= 100"
+url: "{{baseUrl}}/api/rules"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"telemetryType":2,"operator":"LE","value":100}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      pm.collectionVariables.set('ruleLeId', pm.response.json().id);
+    language: text/javascript
+order: 2000

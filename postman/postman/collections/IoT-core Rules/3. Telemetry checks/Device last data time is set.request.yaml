@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/devices/{{deviceId}}"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      pm.test('время последних данных заполнено', () => pm.expect(pm.response.json().lastDataTime).to.not.be.null);
+    language: text/javascript
+order: 7000

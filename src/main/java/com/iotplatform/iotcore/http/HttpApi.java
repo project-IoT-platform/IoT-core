@@ -1,9 +1,6 @@
 package com.iotplatform.iotcore.http;
 
-import com.iotplatform.iotcore.controller.DeviceController;
-import com.iotplatform.iotcore.controller.NotificationController;
-import com.iotplatform.iotcore.controller.TelemetryController;
-import com.iotplatform.iotcore.controller.UserController;
+import com.iotplatform.iotcore.controller.*;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -31,10 +28,11 @@ public class HttpApi {
                    DeviceController deviceController,
                    UserController userController,
                    TelemetryController telemetryController,
-                   NotificationController notificationController) {
+                   NotificationController notificationController,
+                   RuleController ruleController) {
         this.port = port;
         this.router = new ApiRouter(deviceController, userController,
-                telemetryController, notificationController);
+                telemetryController, notificationController, ruleController);
     }
 
     public void start() {

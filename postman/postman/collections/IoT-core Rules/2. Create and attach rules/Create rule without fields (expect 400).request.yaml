@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{baseUrl}}/api/rules"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: "{}"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('400 Bad Request', () => pm.response.to.have.status(400));
+      pm.test('указаны все три поля', () => {
+        const e = pm.response.json();
+        pm.expect(e).to.have.property('telemetryType');
+        pm.expect(e).to.have.property('operator');
+        pm.expect(e).to.have.property('value');
+      });
+    language: text/javascript
+order: 5000

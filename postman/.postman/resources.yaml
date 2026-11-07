@@ -2,9 +2,12 @@
 workspace:
   id: 9f9f1896-cde7-4d4a-84c8-c53cb067cc32
 
+# Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+
 cloudResources:
   collections:
     ../postman/collections/IoT-core: 1c33b7ea-4375-4291-bcb1-fdefff554154
+    ../postman/collections/IoT-core Rules: f7d7f82a-8110-4de3-a664-50781635f2bd
 
 # All resources in the `postman/` folder are automatically registered in Local View.
 # Point to additional files outside the `postman/` folder to register them individually. Example:
