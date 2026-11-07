@@ -1,0 +1,19 @@
+$kind: http-request
+name: "Create SOFT rule: temperature <= 30 (strict: false)"
+url: "{{baseUrl}}/api/rules"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"telemetryType":3,"operator":"LE","value":30,"strict":false}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      const rule = pm.response.json();
+      pm.test('правило нестрогое', () => pm.expect(rule.strict).to.eql(false));
+      pm.test('id — UUID', () => pm.expect(rule.id).to.match(/^[0-9a-f-]{36}$/));
+      pm.collectionVariables.set('softLeId', rule.id);
+    language: text/javascript
+order: 3000

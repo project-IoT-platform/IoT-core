@@ -10,8 +10,12 @@ import com.iotplatform.iotcore.repository.UserRepository;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DeviceService {
+    private static final Logger log = LoggerFactory.getLogger(DeviceService.class);
+
     private final DeviceRepository devices;
     private final UserRepository users;
 
@@ -31,6 +35,7 @@ public class DeviceService {
         Instant lastDataTime = devices.findById(dto.getDeviceId())
                 .map(DeviceEntity::getLastDataTime).orElse(null);
         devices.save(toEntity(dto, lastDataTime));
+        log.info("Device {} saved (user {})", dto.getDeviceId(), dto.getUserId());
     }
 
     public DeviceDto update(UUID id, DeviceDto dto) {
@@ -46,6 +51,7 @@ public class DeviceService {
         if (!devices.deleteById(id)) {
             throw new DeviceNotFoundException(id);
         }
+        log.info("Device {} deleted", id);
     }
 
     private void checkUserExists(UUID userId) {

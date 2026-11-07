@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{baseUrl}}/api/telemetry"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"deviceId":"{{deviceId}}","time":"{{$isoTimestamp}}","telemetryType":2,"value":120}'
+scripts:
+  - type: afterResponse
+    code: pm.test('202 Accepted', () => pm.response.to.have.status(202));
+    language: text/javascript
+order: 3000

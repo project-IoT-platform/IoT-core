@@ -1,0 +1,11 @@
+$kind: collection
+name: "IoT-core: strict & soft rules"
+description: Строгие правила отклоняют телеметрию (400), нестрогие пропускают и сохраняют данные (202). Запускать папки по порядку 1 -> 4 (Run collection).
+variables:
+  baseUrl: http://localhost:8080
+  userId: ""
+  deviceId: ""
+  strictGeId: ""
+  strictLeId: ""
+  softLeId: ""
+  softTime: ""

@@ -1,0 +1,13 @@
+$kind: http-request
+name: "Check: soft value saved, strict values not saved"
+url: "{{baseUrl}}/api/devices/{{deviceId}}"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      const last = new Date(pm.response.json().lastDataTime).getTime();
+      const sent = new Date(pm.collectionVariables.get('softTime')).getTime();
+      pm.test('последним сохранено нестрогое значение (120 и -5 не записаны)', () => pm.expect(last).to.eql(sent));
+    language: text/javascript
+order: 7000

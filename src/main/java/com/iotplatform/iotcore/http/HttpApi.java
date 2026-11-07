@@ -12,8 +12,12 @@ import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class HttpApi {
+    private static final Logger log = LoggerFactory.getLogger(HttpApi.class);
+
     private static final int MAX_BODY_BYTES = 1024 * 1024;
 
     private final int port;
@@ -58,7 +62,7 @@ public class HttpApi {
             throw new IllegalStateException("Не удалось запустить HTTP-сервер на порту " + port, e);
         }
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
-        System.out.println("IoT Core запущен на порту " + port);
+        log.info("IoT Core started on port {}", port);
     }
 
     public void stop() {

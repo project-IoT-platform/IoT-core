@@ -11,9 +11,11 @@ import com.iotplatform.iotcore.service.NotificationService.Settings;
 
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TelegramBot {
-    private static final System.Logger LOG = System.getLogger(TelegramBot.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(TelegramBot.class);
 
     private static final String ASK_ID =
             "Привет! Чтобы пользоваться ботом, отправьте ваш id пользователя на платформе "
@@ -46,14 +48,14 @@ public class TelegramBot {
 
     public void start() {
         if (!telegram.isConfigured()) {
-            LOG.log(System.Logger.Level.WARNING, "Telegram-бот не запущен: не задан TELEGRAM_BOT_TOKEN");
+            log.warn("Telegram bot not started: TELEGRAM_BOT_TOKEN is not set");
             return;
         }
         running = true;
         thread = new Thread(this::pollLoop, "telegram-bot");
         thread.setDaemon(true);
         thread.start();
-        LOG.log(System.Logger.Level.INFO, "Telegram-бот запущен");
+        log.info("Telegram bot started");
     }
 
     public void stop() {
@@ -73,7 +75,7 @@ public class TelegramBot {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Exception e) {
-                LOG.log(System.Logger.Level.ERROR, "Ошибка опроса Telegram", e);
+                log.error("Telegram polling error", e);
                 try {
                     Thread.sleep(5000);
                 } catch (InterruptedException ie) {
@@ -105,6 +107,7 @@ public class TelegramBot {
             Optional<UserEntity> user = users.findById(userId.get());
             if (user.isEmpty()) {
                 links.delete(chatId);
+                log.warn("User {} not found, link for chat {} removed", userId.get(), chatId);
                 return "Ваш аккаунт на платформе не найден.\n" + ASK_ID;
             }
 
@@ -112,7 +115,7 @@ public class TelegramBot {
         } catch (UnsupportedOperationException e) {
             return "Сервис временно недоступен, попробуйте позже.";
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Ошибка обработки сообщения", e);
+            log.error("Error while handling message", e);
             return "Внутренняя ошибка.";
         }
     }
@@ -123,6 +126,7 @@ public class TelegramBot {
             return "Пользователь с таким id не найден. Проверьте id и отправьте ещё раз.";
         }
         links.save(chatId, userId);
+        log.info("Telegram chat {} linked to user {}", chatId, userId);
         return "Готово, " + displayName(user.get()) + "! Теперь вам будут приходить уведомления.\n\n" + HELP;
     }
 

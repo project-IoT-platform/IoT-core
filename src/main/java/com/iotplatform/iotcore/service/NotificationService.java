@@ -22,9 +22,11 @@ import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class NotificationService {
-    private static final System.Logger LOG = System.getLogger(NotificationService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
     private static final int LOW_BATTERY_PERCENT = 15;
     private static final Duration AVERAGE_WINDOW = Duration.ofHours(1);
@@ -72,6 +74,7 @@ public class NotificationService {
         }
         if (device.getUserId() == null) return;
         if (!lowBatteryNotified.add(id)) return;
+        log.info("Low battery: device {}, level {}%", id, level);
 
         safe(() -> sendToUser(device.getUserId(), "🪫 Низкий заряд батареи\n"
                 + "Устройство: " + device.getName() + "\n"
@@ -185,7 +188,7 @@ public class NotificationService {
         try {
             action.run();
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Не удалось отправить уведомление", e);
+            log.error("Failed to send notification", e);
         }
     }
 }

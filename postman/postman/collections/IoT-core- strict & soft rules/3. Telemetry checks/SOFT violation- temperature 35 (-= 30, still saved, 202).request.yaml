@@ -1,0 +1,17 @@
+$kind: http-request
+name: "SOFT violation: temperature 35 (<= 30, still saved, 202)"
+url: "{{baseUrl}}/api/telemetry"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"deviceId":"{{deviceId}}","time":"{{softTime}}","telemetryType":3,"value":35}'
+scripts:
+  - type: beforeRequest
+    code: pm.collectionVariables.set('softTime', new Date().toISOString());
+    language: text/javascript
+  - type: afterResponse
+    code: pm.test('202 Accepted', () => pm.response.to.have.status(202));  // нестрогое нарушение не отклоняет данные
+    language: text/javascript
+order: 4000

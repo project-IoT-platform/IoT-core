@@ -1,0 +1,21 @@
+$kind: http-request
+name: "STRICT violation: humidity -5 (>= 0, expect 400)"
+url: "{{baseUrl}}/api/telemetry"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"deviceId":"{{deviceId}}","time":"{{$isoTimestamp}}","telemetryType":2,"value":-5}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('400 Bad Request', () => pm.response.to.have.status(400));
+      pm.test('назван нарушенный предел', () => pm.expect(pm.response.text()).to.include('>= 0.0'));
+      pm.test('тело — мапа ошибок по правилам', () => {
+        const keys = Object.keys(pm.response.json());
+        pm.expect(keys).to.not.be.empty;
+        keys.forEach(k => pm.expect(k).to.match(/^rule_/));
+      });
+    language: text/javascript
+order: 6000

@@ -21,8 +21,9 @@ public class PostgresRuleRepository implements RuleRepository {
     @Override
     public RuleEntity save(RuleEntity rule) {
         databaseUtils.update(
-                "INSERT INTO rule (id, telemetry_type, operator, value) VALUES (?, ?, ?::rule_operator, ?)",
-                rule.id(), rule.telemetryType(), rule.operator().name(), rule.value());
+                "INSERT INTO rule (id, telemetry_type, operator, value, is_strict) "
+                        + "VALUES (?, ?, ?::rule_operator, ?, ?)",
+                rule.id(), rule.telemetryType(), rule.operator().name(), rule.value(), rule.strict());
         return rule;
     }
 
@@ -65,7 +66,8 @@ public class PostgresRuleRepository implements RuleRepository {
                     rs.getObject("id", UUID.class),
                     rs.getShort("telemetry_type"),
                     RuleOperator.valueOf(rs.getString("operator")),
-                    rs.getDouble("value"));
+                    rs.getDouble("value"),
+                    rs.getBoolean("is_strict"));
         } catch (SQLException e) {
             throw new DatabaseException("Ошибка преобразования в класс Java", e);
         }

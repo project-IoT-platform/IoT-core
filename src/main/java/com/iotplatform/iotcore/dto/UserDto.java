@@ -9,8 +9,19 @@ import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 public class UserDto {
+
+    private static final int MAX_EMAIL_LENGTH = 254;
+
+    // локальная часть: без точки в начале, в конце и подряд; домен: метки через точку без дефиса по краям;
+    // зона: минимум 2 буквы (так отсеиваются user@, @host, user@host, user@@host)
+    private static final Pattern EMAIL = Pattern.compile(
+            "^[A-Za-z0-9_%+-]+(\\.[A-Za-z0-9_%+-]+)*"
+                    + "@"
+                    + "([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\\.)+"
+                    + "[A-Za-z]{2,}$");
 
     private final UUID id;
     private final String email;
@@ -62,7 +73,7 @@ public class UserDto {
         Map<String, String> errors = new LinkedHashMap<>();
 
         if (creating) {
-            if (email == null || !email.contains("@")) errors.put("email", "некорректный адрес");
+            if (!isValidEmail(email)) errors.put("email", "некорректный адрес");
             if (password == null) errors.put("password", "обязательное поле");
         }
         if (password != null && password.length() < 8) {
@@ -75,6 +86,13 @@ public class UserDto {
             errors.put("dateOfBirth", "дата не может быть в будущем");
         }
         if (!errors.isEmpty()) throw new ValidationException(errors);
+    }
+
+    // пробелы по краям срезаем, как это делает UserService при сохранении
+    private static boolean isValidEmail(String email) {
+        if (email == null) return false;
+        String trimmed = email.trim();
+        return trimmed.length() <= MAX_EMAIL_LENGTH && EMAIL.matcher(trimmed).matches();
     }
 
     @Override

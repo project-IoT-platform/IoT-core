@@ -12,8 +12,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class UserService {
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
+
     private final UserRepository users;
 
     public UserService(UserRepository users) {
@@ -49,7 +53,9 @@ public class UserService {
 
         UserEntity entity = new UserEntity(UUID.randomUUID(), dto.getUsername(), email,
                 dto.getPhone(), dto.getDateOfBirth(), PasswordHasher.hash(dto.getPassword()), role);
-        return toResponse(users.save(entity));
+        UserResponse response = toResponse(users.save(entity));
+        log.info("User {} created", entity.getId());
+        return response;
     }
 
     public UserResponse update(UUID id, UserDto dto) {
@@ -74,6 +80,7 @@ public class UserService {
         if (!users.deleteById(id)) {
             throw new UserNotFoundException(id);
         }
+        log.info("User {} deleted", id);
     }
 
     private UserResponse toResponse(UserEntity e) {

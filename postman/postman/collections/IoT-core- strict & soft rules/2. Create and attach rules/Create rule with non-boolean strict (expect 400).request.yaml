@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{baseUrl}}/api/rules"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"telemetryType":2,"operator":"LE","value":100,"strict":"maybe"}'
+scripts:
+  - type: afterResponse
+    code: pm.test('400 Bad Request', () => pm.response.to.have.status(400));
+    language: text/javascript
+order: 8000

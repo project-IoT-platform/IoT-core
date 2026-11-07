@@ -6,7 +6,7 @@ import com.iotplatform.iotcore.model.RuleOperator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public record RuleDto(Short telemetryType, RuleOperator operator, Double value) {
+public record RuleDto(Short telemetryType, RuleOperator operator, Double value, Boolean strict) {
 
     public void validate() {
         Map<String, String> errors = new LinkedHashMap<>();

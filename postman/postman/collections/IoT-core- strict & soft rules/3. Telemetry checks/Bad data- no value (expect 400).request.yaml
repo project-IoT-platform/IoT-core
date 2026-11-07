@@ -1,0 +1,16 @@
+$kind: http-request
+name: "Bad data: no value (expect 400)"
+url: "{{baseUrl}}/api/telemetry"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"deviceId":"{{deviceId}}","time":"{{$isoTimestamp}}","telemetryType":2}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('400 Bad Request', () => pm.response.to.have.status(400));
+      pm.test('указано поле value', () => pm.expect(pm.response.json()).to.have.property('value'));
+    language: text/javascript
+order: 10000

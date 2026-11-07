@@ -8,5 +8,6 @@ public record RuleEntity(
         UUID id,
         Short telemetryType,
         RuleOperator operator,
-        Double value) {
+        Double value,
+        boolean strict) {
 }

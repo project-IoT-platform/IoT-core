@@ -1,0 +1,9 @@
+$kind: http-request
+name: Attach strict rule >= 0 to device
+url: "{{baseUrl}}/api/devices/{{deviceId}}/rules/{{strictGeId}}"
+method: POST
+scripts:
+  - type: afterResponse
+    code: pm.test('204 No Content', () => pm.response.to.have.status(204));
+    language: text/javascript
+order: 9000

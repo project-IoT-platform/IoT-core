@@ -7,8 +7,12 @@ import com.iotplatform.iotcore.repository.*;
 import com.iotplatform.iotcore.service.*;
 import com.iotplatform.iotcore.telegram.TelegramBot;
 import com.iotplatform.iotcore.telegram.TelegramClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Main {
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
+
     public static void main(String[] args) {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
 
@@ -21,6 +25,7 @@ public class Main {
 
         DatabaseUtils databaseUtils = DatabaseUtils.fromProperties("/db.properties");
         databaseUtils.initSchema();
+        log.info("Database schema initialized");
         DeviceRepository deviceRepository = new PostgresDeviceRepository(databaseUtils);
         UserRepository userRepository = new PostgresUserRepository(databaseUtils);
         TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(databaseUtils);

@@ -23,9 +23,11 @@ import java.util.UUID;
 import com.iotplatform.iotcore.controller.RuleController;
 import com.iotplatform.iotcore.dto.RuleDto;
 import com.iotplatform.iotcore.exception.RuleNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 final class ApiRouter {
-    private static final System.Logger LOG = System.getLogger(ApiRouter.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(ApiRouter.class);
 
     record Response(int status, byte[] body) {}
 
@@ -37,10 +39,10 @@ final class ApiRouter {
 
 
     ApiRouter(DeviceController deviceController,
-                   UserController userController,
-                   TelemetryController telemetryController,
-                   NotificationController notificationController,
-                   RuleController ruleController) {
+              UserController userController,
+              TelemetryController telemetryController,
+              NotificationController notificationController,
+              RuleController ruleController) {
         this.ruleController = ruleController;
         this.deviceController = deviceController;
         this.userController = userController;
@@ -53,15 +55,18 @@ final class ApiRouter {
         try {
             return dispatch(method, uri, body);
         } catch (JsonProcessingException e) {
+            log.debug("400 {} {}: invalid JSON", method, uri);
             return json(400, Map.of("error", "Некорректный JSON: " + e.getOriginalMessage()));
         } catch (ValidationException e) {
+            log.debug("400 {} {}: {}", method, uri, e.getErrors());
             return json(400, e.getErrors());
         } catch (DeviceNotFoundException | UserNotFoundException | RuleNotFoundException e) {
+            log.debug("404 {} {}: {}", method, uri, e.getMessage());
             return json(404, Map.of("error", String.valueOf(e.getMessage())));
         } catch (UnsupportedOperationException e) {
             return json(501, Map.of("error", "Ещё не реализовано: " + e.getMessage()));
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Внутренняя ошибка", e);
+            log.error("Internal error while handling {} {}", method, uri, e);
             return json(500, Map.of("error", "Внутренняя ошибка сервера"));
         }
     }
@@ -239,7 +244,7 @@ final class ApiRouter {
         try {
             return new Response(status, Json.MAPPER.writeValueAsBytes(value));
         } catch (JsonProcessingException e) {
-            LOG.log(System.Logger.Level.ERROR, "Не удалось собрать JSON-ответ", e);
+            log.error("Failed to build JSON response", e);
             return new Response(500, "{\"error\":\"Внутренняя ошибка сервера\"}".getBytes(StandardCharsets.UTF_8));
         }
     }

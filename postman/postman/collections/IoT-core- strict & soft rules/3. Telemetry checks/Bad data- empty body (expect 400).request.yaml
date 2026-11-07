@@ -1,0 +1,16 @@
+$kind: http-request
+name: "Bad data: empty body (expect 400)"
+url: "{{baseUrl}}/api/telemetry"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: "{}"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('400 Bad Request', () => pm.response.to.have.status(400));
+      pm.test('в ответе есть ошибки по полям', () => pm.expect(Object.keys(pm.response.json())).to.not.be.empty);
+    language: text/javascript
+order: 9000

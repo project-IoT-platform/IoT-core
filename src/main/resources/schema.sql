@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS rule (
     id UUID PRIMARY KEY,
     telemetry_type SMALLINT NOT NULL,
     operator rule_operator NOT NULL,
-    value FLOAT NOT NULL
+    value FLOAT NOT NULL,
+    is_strict BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS device_to_rule (
