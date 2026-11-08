@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.UUID;
 
 public class DeviceService {
+    private static final System.Logger LOG = System.getLogger(DeviceService.class.getName());
+
     private final DeviceRepository devices;
     private final UserRepository users;
 
@@ -31,6 +33,7 @@ public class DeviceService {
         Instant lastDataTime = devices.findById(dto.getDeviceId())
                 .map(DeviceEntity::getLastDataTime).orElse(null);
         devices.save(toEntity(dto, lastDataTime));
+        LOG.log(System.Logger.Level.INFO, "Устройство " + dto.getDeviceId() + " («" + dto.getName() + "») сохранено");
     }
 
     public DeviceDto update(UUID id, DeviceDto dto) {
@@ -39,13 +42,16 @@ public class DeviceService {
         checkUserExists(withId.getUserId());
         DeviceEntity existing = devices.findById(id)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
-        return toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
+        DeviceDto saved = toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
+        LOG.log(System.Logger.Level.INFO, "Устройство " + id + " обновлено");
+        return saved;
     }
 
     public void delete(UUID id) {
         if (!devices.deleteById(id)) {
             throw new DeviceNotFoundException(id);
         }
+        LOG.log(System.Logger.Level.INFO, "Устройство " + id + " удалено");
     }
 
     private void checkUserExists(UUID userId) {

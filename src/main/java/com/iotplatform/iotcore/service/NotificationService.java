@@ -1,191 +1,177 @@
 package com.iotplatform.iotcore.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.iotplatform.iotcore.check.BatteryCheckResult;
+import com.iotplatform.iotcore.check.TelemetryCheckResult;
 import com.iotplatform.iotcore.dto.DeviceDto;
 import com.iotplatform.iotcore.dto.TelemetryDto;
-import com.iotplatform.iotcore.entity.DeviceEntity;
-import com.iotplatform.iotcore.entity.UserEntity;
+import com.iotplatform.iotcore.dto.UserResponse;
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
+import com.iotplatform.iotcore.http.Json;
 import com.iotplatform.iotcore.model.DeviceState;
-import com.iotplatform.iotcore.model.UserRole;
-import com.iotplatform.iotcore.repository.DeviceRepository;
-import com.iotplatform.iotcore.repository.TelegramLinkRepository;
-import com.iotplatform.iotcore.repository.TelemetryRepository;
-import com.iotplatform.iotcore.telegram.TelegramClient;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
-import java.util.OptionalDouble;
-import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Связь IoT Core с отдельным сервисом уведомлений (notification-service) по HTTP/JSON.
+ * Класс только отправляет события и запросы в другой сервис. Проверки на норму делает IoT Core (AlertService),
+ * сюда приходят уже готовые результаты: battery-low и telemetry-alert.
+ */
 public class NotificationService {
     private static final System.Logger LOG = System.getLogger(NotificationService.class.getName());
 
-    private static final int LOW_BATTERY_PERCENT = 15;
-    private static final Duration AVERAGE_WINDOW = Duration.ofHours(1);
-
     public record Settings(Double norm, Double deviation) {}
 
-    private final TelegramClient telegram;
-    private final DeviceRepository devices;
-    private final TelegramLinkRepository links;
-    private final TelemetryRepository telemetry;
+    private final String baseUrl;   // например http://localhost:8081
+    private final HttpClient http = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(3))
+            .build();
 
-    private volatile double defaultNorm;
-    private volatile double defaultDeviation;
-    private final Map<UUID, Settings> userSettings = new ConcurrentHashMap<>();
-    private final Set<UUID> lowBatteryNotified = ConcurrentHashMap.newKeySet();
-
-    public NotificationService(TelegramClient telegram, DeviceRepository devices,
-                               TelegramLinkRepository links, TelemetryRepository telemetry,
-                               double norm, double deviation) {
-        this.telegram = telegram;
-        this.devices = devices;
-        this.links = links;
-        this.telemetry = telemetry;
-        this.defaultNorm = norm;
-        this.defaultDeviation = deviation;
+    public NotificationService(String baseUrl) {
+        this.baseUrl = baseUrl.replaceAll("/+$", "");
     }
 
+    // ---- события: отправляем в фоне и не ждём ответа, чтобы запрос к IoT Core не тормозил ----
+
+    /** Новое устройство прошло проверку и сохранено: письмо о регистрации устройства. */
     public void notifyDeviceRegistered(DeviceDto device) {
-        safe(() -> {
-            if (device.getUserId() == null) return;
-            sendToUser(device.getUserId(), "📟 Зарегистрировано устройство\n"
-                    + "Название: " + device.getName() + "\n"
-                    + "ID: " + device.getDeviceId());
-        });
+        sendEvent("/events/device-registered", device);
     }
 
-    public void checkBattery(DeviceDto device) {
-        Integer level = device.getBatteryLevel();
-        UUID id = device.getDeviceId();
-        if (level == null || id == null) return;
-
-        if (level >= LOW_BATTERY_PERCENT) {
-            lowBatteryNotified.remove(id);
-            return;
-        }
-        if (device.getUserId() == null) return;
-        if (!lowBatteryNotified.add(id)) return;
-
-        safe(() -> sendToUser(device.getUserId(), "🪫 Низкий заряд батареи\n"
-                + "Устройство: " + device.getName() + "\n"
-                + "Заряд: " + level + "% (порог " + LOW_BATTERY_PERCENT + "%)"));
+    /** Новый пользователь сохранён: письмо с его id. */
+    public void notifyUserRegistered(UserResponse user) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("userId", user.id());
+        body.put("username", user.username());
+        body.put("email", user.email());
+        sendEvent("/events/user-registered", body);
     }
 
-    public void checkTelemetry(TelemetryDto t) {
-        if (t.value() == null) return;
-        safe(() -> {
-            DeviceEntity device = devices.findById(t.deviceId()).orElse(null);
-            if (device == null || device.getUserId() == null) return;
-
-            Settings s = settingsFor(device.getUserId());
-            if (Math.abs(t.value() - s.norm()) <= s.deviation()) return;
-
-            sendToUser(device.getUserId(), "⚠️ На устройстве " + device.getName()
-                    + " показатели: " + t.value()
-                    + ", норма: " + s.norm()
-                    + " (допустимое отклонение: " + s.deviation() + ")");
-        });
+    /** Заряд ниже нормы (результат проверки заряда). */
+    public void batteryLow(UUID deviceId, BatteryCheckResult r) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("deviceId", deviceId);
+        body.put("batteryLevel", r.batteryLevel());
+        body.put("belowBy", r.belowBy());
+        body.put("lowerBound", r.lowerBound());
+        sendEvent("/events/battery-low", body);
     }
 
-    public String deviceStatusText(UUID deviceId, UserEntity requester) {
-        return statusLine(deviceFor(deviceId, requester));
+    /** Показание вне нормы (результат проверки телеметрии). */
+    public void telemetryAlert(TelemetryDto t, TelemetryCheckResult r) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("deviceId", t.deviceId());
+        body.put("time", t.time());
+        body.put("telemetryType", t.telemetryType());
+        body.put("value", r.value() != null ? r.value() : t.value());
+        body.put("deviation", r.deviation());
+        body.put("lowerBound", r.lowerBound());
+        body.put("upperBound", r.upperBound());
+        sendEvent("/events/telemetry-alert", body);
     }
 
-    public String deviceAverageText(UUID deviceId, UserEntity requester) {
-        DeviceEntity device = deviceFor(deviceId, requester);
-        OptionalDouble avg = telemetry.averageValueSince(deviceId, Instant.now().minus(AVERAGE_WINDOW));
-        if (avg.isEmpty()) {
-            return "Устройство " + device.getName() + ": за последний час показаний нет";
-        }
-        return String.format(Locale.ROOT, "Устройство %s: среднее за последний час: %.2f",
-                device.getName(), avg.getAsDouble());
-    }
+    // ---- запросы, на которые нужен ответ ----
 
+    /** Просит сервис уведомлений отправить статус владельцу и возвращает состояние устройства. */
     public DeviceState sendDeviceStatus(UUID deviceId) {
-        DeviceEntity device = devices.findById(deviceId)
-                .orElseThrow(() -> new DeviceNotFoundException(deviceId));
-        if (device.getUserId() != null) {
-            sendToUser(device.getUserId(), statusLine(device));
+        HttpResponse<String> r = call(request("/devices/" + deviceId + "/status")
+                .POST(HttpRequest.BodyPublishers.noBody()).build());
+        if (r.statusCode() == 404) throw new DeviceNotFoundException(deviceId);
+        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
+        Map<String, String> answer = parse(r.body(), new TypeReference<Map<String, String>>() {});
+        // ИСПРАВЛЕНО: без поля state или с неизвестным значением раньше был NPE/IllegalArgumentException -> 500
+        if (answer == null || answer.get("state") == null) throw unavailable("не прислал state");
+        try {
+            return DeviceState.valueOf(answer.get("state"));
+        } catch (IllegalArgumentException e) {
+            throw unavailable("прислал неизвестный state: " + answer.get("state"));
         }
-        return device.getState();
-    }
-
-    private DeviceEntity deviceFor(UUID deviceId, UserEntity requester) {
-        DeviceEntity device = devices.findById(deviceId)
-                .orElseThrow(() -> new DeviceNotFoundException(deviceId));
-        boolean allowed = requester.getRole() == UserRole.ADMIN
-                || requester.getId().equals(device.getUserId());
-        if (!allowed) throw new DeviceNotFoundException(deviceId);   // чужое не раскрываем
-        return device;
-    }
-
-    private String statusLine(DeviceEntity device) {
-        String state = device.getState() == DeviceState.ON ? "ВКЛ" : "ВЫКЛ";
-        return "Устройство " + device.getName() + ": " + state;
-    }
-
-    public Settings settingsFor(UUID userId) {
-        Settings own = userSettings.get(userId);
-        double norm = own != null && own.norm() != null ? own.norm() : defaultNorm;
-        double dev = own != null && own.deviation() != null ? own.deviation() : defaultDeviation;
-        return new Settings(norm, dev);
-    }
-
-    public synchronized Settings updateUserSettings(UUID userId, Settings s) {
-        validate(s);
-        Settings current = settingsFor(userId);
-        userSettings.put(userId, new Settings(
-                s.norm() != null ? s.norm() : current.norm(),
-                s.deviation() != null ? s.deviation() : current.deviation()));
-        return settingsFor(userId);
-    }
-
-    public String settingsText(UUID userId) {
-        Settings s = settingsFor(userId);
-        return "Норма: " + s.norm() + "\nДопустимое отклонение: " + s.deviation();
     }
 
     public Settings getDefaults() {
-        return new Settings(defaultNorm, defaultDeviation);
+        HttpResponse<String> r = call(request("/settings").GET().build());
+        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
+        return parse(r.body(), new TypeReference<Settings>() {});
     }
 
-    public synchronized Settings updateDefaults(Settings s) {
-        validate(s);
-        if (s.norm() != null) defaultNorm = s.norm();
-        if (s.deviation() != null) defaultDeviation = s.deviation();
-        return getDefaults();
-    }
-
-    private void validate(Settings s) {
-        Map<String, String> errors = new LinkedHashMap<>();
-        if (s.norm() == null && s.deviation() == null) {
-            errors.put("body", "укажите norm и/или deviation");
-        }
-        if (s.norm() != null && !Double.isFinite(s.norm())) {
-            errors.put("norm", "должно быть числом");
-        }
-        if (s.deviation() != null && (!Double.isFinite(s.deviation()) || s.deviation() < 0)) {
-            errors.put("deviation", "должно быть числом не меньше 0");
-        }
-        if (!errors.isEmpty()) throw new ValidationException(errors);
-    }
-
-    private void sendToUser(UUID userId, String text) {
-        links.findChatId(userId).ifPresent(chatId -> telegram.sendMessage(chatId, text));
-    }
-
-    private void safe(Runnable action) {
+    public Settings updateDefaults(Settings settings) {
+        String json;
         try {
-            action.run();
-        } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Не удалось отправить уведомление", e);
+            json = Json.MAPPER.writeValueAsString(settings);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("не удалось собрать JSON", e);
         }
+        HttpResponse<String> r = call(request("/settings").PUT(HttpRequest.BodyPublishers.ofString(json)).build());
+        if (r.statusCode() == 400) {   // сервис уведомлений не принял значения: отдаём ошибки как раньше
+            throw new ValidationException(parse(r.body(), new TypeReference<Map<String, String>>() {}));
+        }
+        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
+        return parse(r.body(), new TypeReference<Settings>() {});
+    }
+
+    // ---- внутренние помощники ----
+
+    private HttpRequest.Builder request(String path) {
+        return HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(5))
+                .header("Content-Type", "application/json; charset=utf-8");
+    }
+
+    private void sendEvent(String path, Object body) {
+        try {
+            String json = Json.MAPPER.writeValueAsString(body);
+            LOG.log(System.Logger.Level.INFO, "-> сервис уведомлений: POST " + path + " " + json);
+            http.sendAsync(request(path).POST(HttpRequest.BodyPublishers.ofString(json)).build(),
+                            HttpResponse.BodyHandlers.ofString())
+                    .whenComplete((resp, err) -> {
+                        if (err != null) {
+                            // одной строкой, без стектрейса: «сервис выключен» — не ошибка в нашем коде
+                            Throwable cause = err.getCause() != null ? err.getCause() : err;
+                            LOG.log(System.Logger.Level.ERROR, "Сервис уведомлений недоступен (" + baseUrl + "), событие "
+                                    + path + " не доставлено: " + cause.getClass().getSimpleName()
+                                    + (cause.getMessage() != null ? " " + cause.getMessage() : ""));
+                        } else if (resp.statusCode() >= 300) {
+                            LOG.log(System.Logger.Level.ERROR,
+                                    "Сервис уведомлений ответил " + resp.statusCode() + " на " + path + ": " + resp.body());
+                        } else {
+                            LOG.log(System.Logger.Level.INFO, "<- сервис уведомлений: " + path + " " + resp.statusCode());
+                        }
+                    });
+        } catch (Exception e) {
+            LOG.log(System.Logger.Level.ERROR, "Не удалось отправить событие в сервис уведомлений", e);
+        }
+    }
+
+    private HttpResponse<String> call(HttpRequest request) {
+        try {
+            return http.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException e) {
+            throw unavailable("недоступен");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw unavailable("запрос прерван");
+        }
+    }
+
+    private static <T> T parse(String body, TypeReference<T> type) {
+        try {
+            return Json.MAPPER.readValue(body, type);
+        } catch (IOException e) {
+            throw unavailable("вернул непонятный ответ");
+        }
+    }
+
+    // ApiRouter превращает UnsupportedOperationException в код 501
+    private static UnsupportedOperationException unavailable(String why) {
+        return new UnsupportedOperationException("сервис уведомлений " + why);
     }
 }

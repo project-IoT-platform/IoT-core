@@ -35,7 +35,12 @@ public class PostgresUserRepository implements UserRepository {
     public UserEntity save(UserEntity user) throws DatabaseException {
         databaseUtils.update(
                 "INSERT INTO users (id, username, email, phone, birthdate, password_hash, user_role) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?::role)",
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?::role) "
+                        // ИСПРАВЛЕНО: UserService.update сохраняет уже существующего пользователя,
+                        // обычный INSERT падал с duplicate key -> HTTP 500. Почту не трогаем: менять её нельзя.
+                        + "ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, phone = EXCLUDED.phone, "
+                        + "birthdate = EXCLUDED.birthdate, password_hash = EXCLUDED.password_hash, "
+                        + "user_role = EXCLUDED.user_role",
                 user.getId(), user.getUsername(), user.getEmail(), user.getPhone(), user.getDateOfBirth(), user.getPasswordHash(), user.getRole());
 
         return user;

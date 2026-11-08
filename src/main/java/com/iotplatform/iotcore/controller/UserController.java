@@ -2,15 +2,18 @@ package com.iotplatform.iotcore.controller;
 
 import com.iotplatform.iotcore.dto.UserDto;
 import com.iotplatform.iotcore.dto.UserResponse;
+import com.iotplatform.iotcore.service.NotificationService;
 import com.iotplatform.iotcore.service.UserService;
 
 import java.util.UUID;
 
 public class UserController {
     private final UserService service;
+    private final NotificationService notifications;
 
-    public UserController(UserService service) {
+    public UserController(UserService service, NotificationService notifications) {
         this.service = service;
+        this.notifications = notifications;
     }
 
     public UserResponse getById(UUID id) {
@@ -18,7 +21,9 @@ public class UserController {
     }
 
     public UserResponse create(UserDto dto) {
-        return service.create(dto);
+        UserResponse created = service.create(dto);
+        notifications.notifyUserRegistered(created);   // письмо с id пользователя
+        return created;
     }
 
     public UserResponse update(UUID id, UserDto dto) {
