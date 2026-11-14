@@ -8,6 +8,7 @@ import com.iotplatform.iotcore.repository.DeviceRepository;
 import com.iotplatform.iotcore.repository.UserRepository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,6 +26,10 @@ public class DeviceService {
     public DeviceDto findById(UUID id) {
         return devices.findById(id).map(this::toDto)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
+    }
+
+    public List<DeviceDto> findByUserId(UUID userId) {
+        return devices.findByUserId(userId).stream().map(this::toDto).toList();
     }
 
     public void register(DeviceDto dto) {

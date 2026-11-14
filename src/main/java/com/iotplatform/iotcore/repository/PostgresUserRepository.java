@@ -63,6 +63,13 @@ public class PostgresUserRepository implements UserRepository {
                 rs -> 1, email).isEmpty();
     }
 
+    // ДОБАВЛЕНО
+    @Override
+    public Optional<UserEntity> findByEmail(String email) {
+        return databaseUtils.query("SELECT * FROM users WHERE email = ?",
+                PostgresUserRepository::mapRow, email).stream().findFirst();
+    }
+
     private static UserEntity mapRow(ResultSet rs) throws DatabaseException {
         try {
             return new UserEntity(

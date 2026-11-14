@@ -5,6 +5,7 @@ import com.iotplatform.iotcore.service.AlertService;
 import com.iotplatform.iotcore.service.DeviceService;
 import com.iotplatform.iotcore.service.NotificationService;
 
+import java.util.List;
 import java.util.UUID;
 
 public class DeviceController {
@@ -20,6 +21,10 @@ public class DeviceController {
 
     public DeviceDto getById(UUID id) {
         return service.findById(id);
+    }
+
+    public List<DeviceDto> getByUserId(UUID userId) {
+        return service.findByUserId(userId);
     }
 
     public void register(DeviceDto dto) {

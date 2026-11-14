@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -101,5 +102,13 @@ public class PostgresDeviceRepository implements DeviceRepository {
     public boolean enableBatteryNotification(UUID id) {
         return databaseUtils.update(
                 "UPDATE device SET battery_notify_allowed = TRUE WHERE id = ? AND NOT battery_notify_allowed", id) > 0;
+    }
+
+    @Override
+    public List<DeviceEntity> findByUserId(UUID userId) {
+        // TODO: заменить заглушку на реальный запрос
+        // return databaseUtils.query("SELECT * FROM device WHERE user_id = ? ORDER BY name",
+        //         PostgresDeviceRepository::mapRow, userId);
+        return List.of();
     }
 }

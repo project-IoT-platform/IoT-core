@@ -11,13 +11,20 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.handler.codec.http.cors.CorsConfig;
+import io.netty.handler.codec.http.cors.CorsConfigBuilder;
+import io.netty.handler.codec.http.cors.CorsHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 
+import java.util.Arrays;
+
 public class HttpApi {
     private static final int MAX_BODY_BYTES = 1024 * 1024;
+    private static final String DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000";
 
     private final int port;
     private final ApiRouter router;
@@ -37,10 +44,26 @@ public class HttpApi {
                 telemetryController, notificationController);
     }
 
+    /** Разрешённые origin фронта: переменная CORS_ORIGINS (через запятую) или localhost:3000. */
+    private static CorsConfig corsConfig() {
+        String[] origins = Arrays.stream(
+                        System.getenv().getOrDefault("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toArray(String[]::new);
+        return CorsConfigBuilder.forOrigins(origins)
+                .allowedRequestMethods(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT,
+                        HttpMethod.DELETE, HttpMethod.OPTIONS)
+                .allowedRequestHeaders("Content-Type")
+                .maxAge(3600)
+                .build();
+    }
+
     public void start() {
         bossGroup = new NioEventLoopGroup(1);
         workerGroup = new NioEventLoopGroup();
         businessGroup = new DefaultEventExecutorGroup(16);
+        CorsConfig cors = corsConfig();
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
@@ -50,6 +73,7 @@ public class HttpApi {
                         protected void initChannel(SocketChannel ch) {
                             ch.pipeline().addLast(new HttpServerCodec());
                             ch.pipeline().addLast(new HttpObjectAggregator(MAX_BODY_BYTES));
+                            ch.pipeline().addLast(new CorsHandler(cors));
                             ch.pipeline().addLast(businessGroup, new ApiHandler(router));
                         }
                     });

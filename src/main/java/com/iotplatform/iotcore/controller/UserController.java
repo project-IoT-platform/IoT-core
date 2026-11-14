@@ -5,6 +5,7 @@ import com.iotplatform.iotcore.dto.UserResponse;
 import com.iotplatform.iotcore.service.NotificationService;
 import com.iotplatform.iotcore.service.UserService;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public class UserController {
@@ -20,10 +21,19 @@ public class UserController {
         return service.findById(id);
     }
 
+    public Optional<UserResponse> login(String email, String password) {
+        return service.login(email, password);
+    }
+
     public UserResponse create(UserDto dto) {
         UserResponse created = service.create(dto);
         notifications.notifyUserRegistered(created);   // письмо с id пользователя
         return created;
+    }
+
+    // ДОБАВЛЕНО
+    public UserResponse confirm(UUID id) {
+        return service.confirm(id);
     }
 
     public UserResponse update(UUID id, UserDto dto) {

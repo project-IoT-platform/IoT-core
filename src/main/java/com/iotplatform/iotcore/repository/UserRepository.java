@@ -12,4 +12,7 @@ public interface UserRepository {
     boolean deleteById(UUID id);  // удаляет пользователя из бд по id
     boolean existsByEmail(String email);                    // есть ли пользователь с такой почтой
     Optional<byte[]> findPasswordHashByEmail(String email); // хеш пароля по почте (для входа)
+
+    // ДОБАВЛЕНО: пользователь целиком по почте (для POST /api/login)
+    Optional<UserEntity> findByEmail(String email);
 }

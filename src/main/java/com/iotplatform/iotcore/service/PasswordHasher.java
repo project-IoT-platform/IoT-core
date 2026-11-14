@@ -3,7 +3,9 @@ package com.iotplatform.iotcore.service;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.Arrays;
 
 public final class PasswordHasher {
     private static final int ITERATIONS = 120_000;
@@ -25,6 +27,24 @@ public final class PasswordHasher {
             return result;
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Не удалось захешировать пароль", e);
+        }
+    }
+
+    // ДОБАВЛЕНО: проверка пароля по сохранённому хешу (формат: соль 16 байт + ключ 32 байта).
+    // Сравнение через MessageDigest.isEqual выполняется за постоянное время.
+    public static boolean verify(String password, byte[] stored) {
+        if (password == null || stored == null || stored.length != SALT_BYTES + KEY_BITS / 8) {
+            return false;
+        }
+        try {
+            byte[] salt = Arrays.copyOfRange(stored, 0, SALT_BYTES);
+            byte[] expected = Arrays.copyOfRange(stored, SALT_BYTES, stored.length);
+            PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt, ITERATIONS, KEY_BITS);
+            byte[] actual = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                    .generateSecret(spec).getEncoded();
+            return MessageDigest.isEqual(expected, actual);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Не удалось проверить пароль", e);
         }
     }
 }

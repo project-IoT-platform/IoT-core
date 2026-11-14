@@ -3,6 +3,7 @@ package com.iotplatform.iotcore.repository;
 import com.iotplatform.iotcore.entity.DeviceEntity;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,4 +20,7 @@ public interface DeviceRepository {
     boolean disableBatteryNotification(UUID id);
     /** Ставит true, если было false. Вернёт true, если флаг поменялся. */
     boolean enableBatteryNotification(UUID id);
+
+    /** Все устройства пользователя (пустой список, если их нет). */
+    List<DeviceEntity> findByUserId(UUID userId);
 }

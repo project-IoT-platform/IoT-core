@@ -12,11 +12,13 @@ import com.iotplatform.iotcore.exception.UserNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.service.NotificationService;
 import com.iotplatform.iotcore.controller.NotificationController;
+import io.netty.handler.codec.http.QueryStringDecoder;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -101,12 +103,26 @@ final class ApiRouter {
         if (parts.length >= 3 && parts[0].isEmpty() && parts[1].equals("api") && parts[2].equals("notifications")) {
             return notifications(method, parts, body);
         }
+        // ДОБАВЛЕНО: POST /api/login
+        if (parts.length == 3 && parts[0].isEmpty() && parts[1].equals("api") && parts[2].equals("login")) {
+            return login(method, body);
+        }
+        // ДОБАВЛЕНО: POST /api/users/{id}/confirm
+        if (parts.length == 5 && parts[0].isEmpty() && parts[1].equals("api")
+                && parts[2].equals("users") && parts[4].equals("confirm")) {
+            return confirmUser(method, parts[3]);
+        }
         if (parts.length < 3 || parts.length > 4 || !parts[0].isEmpty() || !parts[1].equals("api")) {
             return notFound();
         }
         String resource = parts[2];
         if (!resource.equals("devices") && !resource.equals("users") && !resource.equals("telemetry")) {
             return notFound();
+        }
+
+        // GET /api/devices?userId={uuid}: список устройств пользователя (без {id} в пути)
+        if (method.equals("GET") && parts.length == 3 && resource.equals("devices")) {
+            return devicesByUser(uri);
         }
 
         UUID id = null;
@@ -121,6 +137,41 @@ final class ApiRouter {
         if (resource.equals("devices")) return devices(method, id, body);
         if (resource.equals("users")) return users(method, id, body);
         return telemetry(method, id, body);
+    }
+
+    // ДОБАВЛЕНО: тело {email, password}; пользователь не найден или пароль неверный -> 401
+    private Response login(String method, byte[] body) throws IOException {
+        if (!method.equals("POST")) return methodNotAllowed();
+        UserDto dto = read(body, UserDto.class);
+        return userController.login(dto.getEmail(), dto.getPassword())
+                .map(user -> json(200, user))
+                .orElseGet(() -> json(401, Map.of("error", "Неверный email или пароль")));
+    }
+
+    // ДОБАВЛЕНО: подтверждение регистрации, после него пользователь появляется в БД
+    private Response confirmUser(String method, String rawId) {
+        if (!method.equals("POST")) return methodNotAllowed();
+        UUID id;
+        try {
+            id = UUID.fromString(rawId);
+        } catch (IllegalArgumentException e) {
+            return json(400, Map.of("id", "некорректный UUID в адресе"));
+        }
+        return json(200, userController.confirm(id));   // нет такой регистрации или срок истёк -> 404
+    }
+
+    private Response devicesByUser(String uri) {
+        List<String> values = new QueryStringDecoder(uri).parameters().get("userId");
+        if (values == null || values.isEmpty() || values.get(0).isBlank()) {
+            return json(400, Map.of("error", "userId обязателен"));
+        }
+        UUID userId;
+        try {
+            userId = UUID.fromString(values.get(0).trim());
+        } catch (IllegalArgumentException e) {
+            return json(400, Map.of("error", "некорректный UUID"));
+        }
+        return json(200, deviceController.getByUserId(userId));
     }
 
     private Response devices(String method, UUID id, byte[] body) throws IOException {
