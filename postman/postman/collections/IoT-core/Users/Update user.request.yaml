@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users/{{userId}}"
+method: PUT
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"username":"renamed","phone":"+79990000000"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      pm.test('имя изменилось', () => pm.expect(pm.response.json().username).to.eql('renamed'));
+    language: text/javascript
+order: 3000

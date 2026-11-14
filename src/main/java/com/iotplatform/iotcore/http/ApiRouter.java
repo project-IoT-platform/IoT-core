@@ -20,8 +20,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 
+import com.iotplatform.iotcore.controller.RuleController;
+import com.iotplatform.iotcore.dto.RuleDto;
+import com.iotplatform.iotcore.exception.RuleNotFoundException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 final class ApiRouter {
-    private static final System.Logger LOG = System.getLogger(ApiRouter.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(ApiRouter.class);
 
     record Response(int status, byte[] body) {}
 
@@ -29,30 +35,33 @@ final class ApiRouter {
     private final UserController userController;
     private final TelemetryController telemetryController;
     private final NotificationController notificationController;
+    private final RuleController ruleController;
+
 
     ApiRouter(DeviceController deviceController,
               UserController userController,
               TelemetryController telemetryController,
-              NotificationController notificationController) {
+              NotificationController notificationController,
+              RuleController ruleController) {
+        this.ruleController = ruleController;
         this.deviceController = deviceController;
         this.userController = userController;
         this.telemetryController = telemetryController;
         this.notificationController = notificationController;
     }
 
-    /** Обрабатывает запрос и пишет в лог одну строку: метод, адрес, код ответа, время; при ошибке ещё и её текст. */
     Response handle(String method, String uri, byte[] body) {
         long start = System.nanoTime();
         Response response = route(method, uri, body);
         long ms = (System.nanoTime() - start) / 1_000_000;
         String line = method + " " + uri + " -> " + response.status() + " (" + ms + " мс)";
         if (response.status() >= 500) {
-            LOG.log(System.Logger.Level.ERROR, line + " " + text(response.body()));
+            log.error(line + " " + text(response.body()));
         } else if (response.status() >= 400) {
-            LOG.log(System.Logger.Level.WARNING, line + " " + text(response.body())
+            log.warn(line + " " + text(response.body())
                     + (body != null && body.length > 0 ? " | тело запроса: " + hidePassword(text(body)) : ""));
         } else {
-            LOG.log(System.Logger.Level.INFO, line);
+            log.info(line);
         }
         return response;
     }
@@ -72,15 +81,18 @@ final class ApiRouter {
         try {
             return dispatch(method, uri, body);
         } catch (JsonProcessingException e) {
+            log.debug("400 {} {}: invalid JSON", method, uri);
             return json(400, Map.of("error", "Некорректный JSON: " + e.getOriginalMessage()));
         } catch (ValidationException e) {
+            log.debug("400 {} {}: {}", method, uri, e.getErrors());
             return json(400, e.getErrors());
-        } catch (DeviceNotFoundException | UserNotFoundException e) {
+        } catch (DeviceNotFoundException | UserNotFoundException | RuleNotFoundException e) {
+            log.debug("404 {} {}: {}", method, uri, e.getMessage());
             return json(404, Map.of("error", String.valueOf(e.getMessage())));
         } catch (UnsupportedOperationException e) {
             return json(501, Map.of("error", "Ещё не реализовано: " + e.getMessage()));
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Внутренняя ошибка при " + method + " " + uri, e);
+            log.error("Internal error while handling {} {}", method, uri, e);
             return json(500, Map.of("error", "Внутренняя ошибка сервера"));
         }
     }
@@ -101,6 +113,15 @@ final class ApiRouter {
         if (parts.length >= 3 && parts[0].isEmpty() && parts[1].equals("api") && parts[2].equals("notifications")) {
             return notifications(method, parts, body);
         }
+
+        if (parts.length >= 5 && parts[0].isEmpty() && parts[1].equals("api")
+                && parts[2].equals("devices") && parts[4].equals("rules")) {
+            return deviceRules(method, parts);
+        }
+        if (parts.length >= 3 && parts[0].isEmpty() && parts[1].equals("api") && parts[2].equals("rules")) {
+            return rules(method, parts, body);
+        }
+
         if (parts.length < 3 || parts.length > 4 || !parts[0].isEmpty() || !parts[1].equals("api")) {
             return notFound();
         }
@@ -166,6 +187,52 @@ final class ApiRouter {
         return methodNotAllowed();
     }
 
+    private Response deviceRules(String method, String[] parts) {
+        UUID deviceId = uuid(parts[3]);
+        if (parts.length == 5) {
+            if (method.equals("GET")) return json(200, ruleController.getByDevice(deviceId));
+            return methodNotAllowed();
+        }
+        if (parts.length == 6) {
+            UUID ruleId = uuid(parts[5]);
+            if (method.equals("POST")) {
+                ruleController.attach(deviceId, ruleId);
+                return empty(204);
+            }
+            if (method.equals("DELETE")) {
+                ruleController.detach(deviceId, ruleId);
+                return empty(204);
+            }
+            return methodNotAllowed();
+        }
+        return notFound();
+    }
+
+    private Response rules(String method, String[] parts, byte[] body) throws IOException {
+        if (parts.length == 3) {
+            if (method.equals("POST")) return json(201, ruleController.create(read(body, RuleDto.class)));
+            return methodNotAllowed();
+        }
+        if (parts.length == 4) {
+            UUID id = uuid(parts[3]);
+            if (method.equals("GET")) return json(200, ruleController.getById(id));
+            if (method.equals("DELETE")) {
+                ruleController.delete(id);
+                return empty(204);
+            }
+            return methodNotAllowed();
+        }
+        return notFound();
+    }
+
+    private UUID uuid(String text) {
+        try {
+            return UUID.fromString(text);
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException(Map.of("id", "некорректный UUID в адресе"));
+        }
+    }
+
     private Response notifications(String method, String[] parts, byte[] body) throws IOException {
         if (parts.length == 4 && parts[3].equals("settings")) {
             if (method.equals("GET")) return json(200, notificationController.getSettings());
@@ -203,7 +270,7 @@ final class ApiRouter {
         try {
             return new Response(status, Json.MAPPER.writeValueAsBytes(value));
         } catch (JsonProcessingException e) {
-            LOG.log(System.Logger.Level.ERROR, "Не удалось собрать JSON-ответ", e);
+            log.error("Failed to build JSON response", e);
             return new Response(500, "{\"error\":\"Внутренняя ошибка сервера\"}".getBytes(StandardCharsets.UTF_8));
         }
     }

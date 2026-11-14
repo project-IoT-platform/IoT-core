@@ -1,0 +1,9 @@
+$kind: http-request
+name: Delete strict rule <= 100
+url: "{{baseUrl}}/api/rules/{{strictLeId}}"
+method: DELETE
+scripts:
+  - type: afterResponse
+    code: pm.test('204 No Content', () => pm.response.to.have.status(204));
+    language: text/javascript
+order: 5000

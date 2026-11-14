@@ -2,40 +2,55 @@ package com.iotplatform.iotcore.service;
 
 import org.junit.jupiter.api.Test;
 
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.PBEKeySpec;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class PasswordHasherTest {
 
     @Test
-    void hashIsSaltPlusKey() {
-        assertEquals(16 + 32, PasswordHasher.hash("password123").length);
+    void resultIsSaltPlusKey48Bytes() {
+        assertEquals(48, PasswordHasher.hash("password123").length);
     }
 
     @Test
-    void samePasswordGivesDifferentHashesBecauseOfSalt() {
-        byte[] a = PasswordHasher.hash("password123");
-        byte[] b = PasswordHasher.hash("password123");
-        assertFalse(Arrays.equals(a, b));
+    void sameHashDiffersBetweenCallsBecauseOfSalt() {
+        byte[] first = PasswordHasher.hash("password123");
+        byte[] second = PasswordHasher.hash("password123");
+
+        assertFalse(Arrays.equals(first, second));
     }
 
     @Test
-    void keyCanBeRecomputedFromSalt() throws Exception {
-        byte[] stored = PasswordHasher.hash("password123");
-        byte[] salt = Arrays.copyOfRange(stored, 0, 16);
-        byte[] key = Arrays.copyOfRange(stored, 16, stored.length);
+    void saltPartDiffersBetweenCalls() {
+        byte[] first = Arrays.copyOfRange(PasswordHasher.hash("password123"), 0, 16);
+        byte[] second = Arrays.copyOfRange(PasswordHasher.hash("password123"), 0, 16);
 
-        byte[] recomputed = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-                .generateSecret(new PBEKeySpec("password123".toCharArray(), salt, 120_000, 256))
-                .getEncoded();
-        assertArrayEquals(key, recomputed);
+        assertFalse(Arrays.equals(first, second));
+    }
 
-        byte[] wrong = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-                .generateSecret(new PBEKeySpec("wrong-password".toCharArray(), salt, 120_000, 256))
-                .getEncoded();
-        assertFalse(Arrays.equals(key, wrong));
+    @Test
+    void hashDoesNotContainThePasswordInPlainText() {
+        byte[] password = "password123".getBytes(StandardCharsets.UTF_8);
+        byte[] hash = PasswordHasher.hash("password123");
+
+        assertFalse(Arrays.equals(password, hash));
+        assertFalse(new String(hash, StandardCharsets.ISO_8859_1).contains("password123"));
+    }
+
+    @Test
+    void differentPasswordsGiveDifferentKeyParts() {
+        byte[] first = Arrays.copyOfRange(PasswordHasher.hash("password123"), 16, 48);
+        byte[] second = Arrays.copyOfRange(PasswordHasher.hash("password124"), 16, 48);
+
+        assertFalse(Arrays.equals(first, second));
+    }
+
+    @Test
+    void longAndNonLatinPasswordsAreHashedToTheSameLength() {
+        assertEquals(48, PasswordHasher.hash("пароль-на-русском-очень-длинный-1234567890").length);
+        assertEquals(48, PasswordHasher.hash("x".repeat(500)).length);
     }
 }

@@ -7,14 +7,11 @@ import com.iotplatform.iotcore.repository.RuleRepository;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Проверка правил (функция тиммейта, перенесена со скриншота ветки rule-engine).
- * Строгое нарушение: ValidationException (HTTP 400). Нестрогие нарушения возвращаются словарём «rule_<id> -> текст».
- * Если у тиммейта файл отличается (например, логирование через SLF4J), берите его версию: интерфейс тот же.
- */
 public class RuleEngine {
-    private static final System.Logger log = System.getLogger(RuleEngine.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(RuleEngine.class);
 
     private final RuleRepository rules;
 
@@ -23,8 +20,8 @@ public class RuleEngine {
     }
 
     public Map<String, String> check(TelemetryDto t) {
-        log.log(System.Logger.Level.DEBUG, "Checking rules: device " + t.deviceId() + ", type " + t.telemetryType()
-                + ", value " + t.value());
+        log.debug("Checking rules: device {}, type {}, value {}",
+                t.deviceId(), t.telemetryType(), t.value());
         Map<String, String> strictErrors = new LinkedHashMap<>();
         Map<String, String> outOfRange = new LinkedHashMap<>();
 

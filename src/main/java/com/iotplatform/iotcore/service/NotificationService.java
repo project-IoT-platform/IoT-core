@@ -5,7 +5,10 @@ import com.iotplatform.iotcore.check.BatteryCheckResult;
 import com.iotplatform.iotcore.check.TelemetryCheckResult;
 import com.iotplatform.iotcore.dto.DeviceDto;
 import com.iotplatform.iotcore.dto.TelemetryDto;
+import com.iotplatform.iotcore.entity.DeviceEntity;
+import com.iotplatform.iotcore.entity.UserEntity;
 import com.iotplatform.iotcore.dto.UserResponse;
+
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.http.Json;
@@ -17,17 +20,17 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalDouble;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Связь IoT Core с отдельным сервисом уведомлений (notification-service) по HTTP/JSON.
- * Класс только отправляет события и запросы в другой сервис. Проверки на норму делает IoT Core (AlertService),
- * сюда приходят уже готовые результаты: battery-low и telemetry-alert.
- */
 public class NotificationService {
-    private static final System.Logger LOG = System.getLogger(NotificationService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
     public record Settings(Double norm, Double deviation) {}
 
@@ -40,9 +43,6 @@ public class NotificationService {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
     }
 
-    // ---- события: отправляем в фоне и не ждём ответа, чтобы запрос к IoT Core не тормозил ----
-
-    /** Новое устройство прошло проверку и сохранено: письмо о регистрации устройства. */
     public void notifyDeviceRegistered(DeviceDto device) {
         sendEvent("/events/device-registered", device);
     }
@@ -55,6 +55,18 @@ public class NotificationService {
         body.put("email", user.email());
         sendEvent("/events/user-registered", body);
     }
+    public void checkBattery(DeviceDto device) {
+        Integer level = device.getBatteryLevel();
+        UUID id = device.getDeviceId();
+        if (level == null || id == null) return;
+
+        if (level >= LOW_BATTERY_PERCENT) {
+            lowBatteryNotified.remove(id);
+            return;
+        }
+        if (device.getUserId() == null) return;
+        if (!lowBatteryNotified.add(id)) return;
+        log.info("Low battery: device {}, level {}%", id, level);
 
     /** Заряд ниже нормы (результат проверки заряда). */
     public void batteryLow(UUID deviceId, BatteryCheckResult r) {
@@ -79,9 +91,20 @@ public class NotificationService {
         sendEvent("/events/telemetry-alert", body);
     }
 
-    // ---- запросы, на которые нужен ответ ----
+    public String deviceStatusText(UUID deviceId, UserEntity requester) {
+        return statusLine(deviceFor(deviceId, requester));
+    }
 
-    /** Просит сервис уведомлений отправить статус владельцу и возвращает состояние устройства. */
+    public String deviceAverageText(UUID deviceId, UserEntity requester) {
+        DeviceEntity device = deviceFor(deviceId, requester);
+        OptionalDouble avg = telemetry.averageValueSince(deviceId, Instant.now().minus(AVERAGE_WINDOW));
+        if (avg.isEmpty()) {
+            return "Устройство " + device.getName() + ": за последний час показаний нет";
+        }
+        return String.format(Locale.ROOT, "Устройство %s: среднее за последний час: %.2f",
+                device.getName(), avg.getAsDouble());
+    }
+
     public DeviceState sendDeviceStatus(UUID deviceId) {
         HttpResponse<String> r = call(request("/devices/" + deviceId + "/status")
                 .POST(HttpRequest.BodyPublishers.noBody()).build());
@@ -129,25 +152,25 @@ public class NotificationService {
     private void sendEvent(String path, Object body) {
         try {
             String json = Json.MAPPER.writeValueAsString(body);
-            LOG.log(System.Logger.Level.INFO, "-> сервис уведомлений: POST " + path + " " + json);
+            log.info("-> сервис уведомлений: POST " + path + " " + json);
             http.sendAsync(request(path).POST(HttpRequest.BodyPublishers.ofString(json)).build(),
                             HttpResponse.BodyHandlers.ofString())
                     .whenComplete((resp, err) -> {
                         if (err != null) {
                             // одной строкой, без стектрейса: «сервис выключен» — не ошибка в нашем коде
                             Throwable cause = err.getCause() != null ? err.getCause() : err;
-                            LOG.log(System.Logger.Level.ERROR, "Сервис уведомлений недоступен (" + baseUrl + "), событие "
+                            log.error("Сервис уведомлений недоступен (" + baseUrl + "), событие "
                                     + path + " не доставлено: " + cause.getClass().getSimpleName()
                                     + (cause.getMessage() != null ? " " + cause.getMessage() : ""));
                         } else if (resp.statusCode() >= 300) {
-                            LOG.log(System.Logger.Level.ERROR,
-                                    "Сервис уведомлений ответил " + resp.statusCode() + " на " + path + ": " + resp.body());
+                            log.error("Сервис уведомлений ответил " + resp.statusCode() + " на " + path + ": " + resp.body());
                         } else {
-                            LOG.log(System.Logger.Level.INFO, "<- сервис уведомлений: " + path + " " + resp.statusCode());
+                            log.info("<- сервис уведомлений: " + path + " " + resp.statusCode());
                         }
                     });
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Не удалось отправить событие в сервис уведомлений", e);
+            log.info("Не удалось отправить событие в сервис уведомлений", e);
+            log.error("Failed to send notification", e);
         }
     }
 

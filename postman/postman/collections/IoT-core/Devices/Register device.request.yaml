@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{baseUrl}}/api/devices"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"deviceId":"{{deviceId}}","userId":"{{userId}}","name":"Датчик","manufacturer":"ACME","state":"ON","batteryLevel":80,"geolocation":"kitchen"}'
+scripts:
+  - type: afterResponse
+    code: pm.test('202 Accepted', () => pm.response.to.have.status(202));
+    language: text/javascript
+order: 1000

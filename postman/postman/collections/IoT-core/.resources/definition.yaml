@@ -1,0 +1,6 @@
+$kind: collection
+description: ""
+variables:
+  baseUrl: http://localhost:8080
+  userId: ""
+  deviceId: 5d1f8a42-9b3e-4c7a-a6d4-2e8b0c71f395

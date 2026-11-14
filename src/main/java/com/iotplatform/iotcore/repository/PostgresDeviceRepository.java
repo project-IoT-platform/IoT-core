@@ -13,7 +13,6 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Хранение устройств в PostgreSQL. */
 public class PostgresDeviceRepository implements DeviceRepository {
     private final DatabaseUtils databaseUtils;
 
@@ -31,24 +30,22 @@ public class PostgresDeviceRepository implements DeviceRepository {
     public boolean existsById(UUID id) {
         return !databaseUtils.query("SELECT 1 FROM device WHERE id = ?",
                 rs -> 1, id).isEmpty();
+
     }
 
     @Override
     public DeviceEntity save(DeviceEntity device) {
-        // ИСПРАВЛЕНО 1: драйвер PostgreSQL не принимает java.time.Instant, переводим в OffsetDateTime
-        OffsetDateTime lastTrans = device.getLastDataTime() == null
-                ? null : device.getLastDataTime().atOffset(ZoneOffset.UTC);
         databaseUtils.update(
                 "INSERT INTO device (id, user_id, name, last_trans, charge_level, "
                         + "manufacturer, device_state, geolocation) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?::state, ?) "
-                        // ИСПРАВЛЕНО 2: по описанию интерфейса save «создаёт, а если id уже есть, обновляет»
-                        + "ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, name = EXCLUDED.name, "
+                        + "ON CONFLICT (id) DO UPDATE SET "
+                        + "user_id = EXCLUDED.user_id, name = EXCLUDED.name, "
                         + "last_trans = EXCLUDED.last_trans, charge_level = EXCLUDED.charge_level, "
                         + "manufacturer = EXCLUDED.manufacturer, device_state = EXCLUDED.device_state, "
                         + "geolocation = EXCLUDED.geolocation",
-                device.getId(), device.getUserId(), device.getName(), lastTrans, device.getBatteryLevel(),
-                device.getManufacturer(), device.getState(), device.getGeolocation());
+                device.getId(), device.getUserId(), device.getName(), device.getLastDataTime(),
+                device.getBatteryLevel(), device.getManufacturer(), device.getState(), device.getGeolocation());
 
         return device;
     }
@@ -58,18 +55,20 @@ public class PostgresDeviceRepository implements DeviceRepository {
         return databaseUtils.update("DELETE FROM device WHERE id = ?", id) > 0;
     }
 
-    private static DeviceEntity mapRow(ResultSet rs) throws DatabaseException {
+    private static DeviceEntity mapRow(ResultSet rs) throws DatabaseException { // преобразование результата запроса к бд в Java-объект
         try {
-            // ИСПРАВЛЕНО 3: last_trans и charge_level могут быть NULL (новое устройство), раньше был NullPointerException
             OffsetDateTime lastTrans = rs.getObject("last_trans", OffsetDateTime.class);
+            Instant lastDataTime = lastTrans == null ? null : lastTrans.toInstant();
+
             short charge = rs.getShort("charge_level");
-            Integer battery = rs.wasNull() ? null : Integer.valueOf(charge);
+            Integer batteryLevel = rs.wasNull() ? null : (int) charge;
+
             return new DeviceEntity(
                     rs.getObject("id", UUID.class),
                     rs.getObject("user_id", UUID.class),
                     rs.getString("name"),
-                    lastTrans == null ? null : lastTrans.toInstant(),
-                    battery,
+                    lastDataTime,
+                    batteryLevel,
                     rs.getString("manufacturer"),
                     DeviceState.valueOf(rs.getString("device_state")),
                     rs.getString("geolocation"));
@@ -77,16 +76,9 @@ public class PostgresDeviceRepository implements DeviceRepository {
             throw new DatabaseException("Ошибка преобразования в класс Java", e);
         }
     }
-
     @Override
-    public int updateLastDataTime(UUID id, Instant lastTrans) { // для обновления из телеметрии
-        // тоже Instant -> OffsetDateTime
-        // ИСПРАВЛЕНО: меняем одно поле (раньше телеметрия перезаписывала всё устройство и могла затереть
-        // параллельный PUT) и не откатываем время назад, если пришла запоздавшая старая запись
-        OffsetDateTime time = lastTrans.atOffset(ZoneOffset.UTC);
-        return databaseUtils.update(
-                "UPDATE device SET last_trans = ? WHERE id = ? AND (last_trans IS NULL OR last_trans < ?)",
-                time, id, time);
+    public int updateLastDataTime(UUID id, Instant lastTrans) { //для обновления из телеметрии
+        return databaseUtils.update("UPDATE device SET last_trans = ? WHERE id = ?", lastTrans, id);
     }
 
     // Проверка и смена флага одним UPDATE: даже если два запроса придут одновременно,

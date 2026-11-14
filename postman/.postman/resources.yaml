@@ -1,0 +1,16 @@
+# Use this workspace to collaborate
+workspace:
+  id: 9f9f1896-cde7-4d4a-84c8-c53cb067cc32
+
+# Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+
+cloudResources:
+  collections:
+    ../postman/collections/IoT-core: 1c33b7ea-4375-4291-bcb1-fdefff554154
+    ../postman/collections/IoT-core- strict & soft rules: 951a9d1a-f20d-4203-810a-94dca7381075
+
+# All resources in the `postman/` folder are automatically registered in Local View.
+# Point to additional files outside the `postman/` folder to register them individually. Example:
+#localResources:
+#  collections:
+#    - ../tests/E2E Test Collection/

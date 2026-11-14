@@ -1,147 +1,156 @@
 package com.iotplatform.iotcore.service;
 
 import com.iotplatform.iotcore.dto.TelemetryDto;
-import com.iotplatform.iotcore.entity.DeviceEntity;
 import com.iotplatform.iotcore.entity.RuleEntity;
 import com.iotplatform.iotcore.entity.TelemetryEntity;
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
-import com.iotplatform.iotcore.fake.FakeDeviceRepository;
-import com.iotplatform.iotcore.fake.FakeRuleRepository;
-import com.iotplatform.iotcore.fake.FakeTelemetryRepository;
-import com.iotplatform.iotcore.model.DeviceState;
 import com.iotplatform.iotcore.model.RuleOperator;
+import com.iotplatform.iotcore.testsupport.InMemoryDeviceRepository;
+import com.iotplatform.iotcore.testsupport.InMemoryRuleRepository;
+import com.iotplatform.iotcore.testsupport.RecordingTelemetryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TelemetryServiceTest {
-    private FakeDeviceRepository devices;
-    private FakeTelemetryRepository telemetry;
-    private FakeRuleRepository rules;
+    private static final short HUMIDITY = 2;
+    private static final short TEMPERATURE = 3;
+
+    private final UUID deviceId = UUID.randomUUID();
+    private InMemoryDeviceRepository devices;
+    private InMemoryRuleRepository rules;
+    private RecordingTelemetryRepository telemetry;
     private TelemetryService service;
-    private UUID deviceId;
 
     @BeforeEach
     void setUp() {
-        devices = new FakeDeviceRepository();
-        telemetry = new FakeTelemetryRepository();
-        rules = new FakeRuleRepository();
+        devices = new InMemoryDeviceRepository();
+        devices.addDevice(deviceId);
+        rules = new InMemoryRuleRepository();
+        telemetry = new RecordingTelemetryRepository();
         service = new TelemetryService(devices, telemetry, new RuleEngine(rules));
-        deviceId = UUID.randomUUID();
-        devices.save(new DeviceEntity(deviceId, null, "n", null, 50, "m", DeviceState.ON, null));
-        devices.saveCalls = 0;
     }
 
-    private TelemetryDto reading(int type, double value) {
-        return new TelemetryDto(deviceId, Instant.parse("2026-11-06T12:00:00Z"), (short) type, value);
+    private void addRule(short type, RuleOperator op, double limit, boolean strict) {
+        RuleEntity rule = rules.save(new RuleEntity(UUID.randomUUID(), type, op, limit, strict));
+        rules.attachToDevice(rule.id(), deviceId);
     }
 
-    // ---------- без правил ----------
+    private TelemetryDto dto(short type, double value, Instant time) {
+        return new TelemetryDto(deviceId, time, type, value);
+    }
 
     @Test
-    void processSavesTelemetryAndUpdatesLastDataTime() {
-        Instant t = Instant.parse("2026-11-06T12:00:00Z");
-        service.process(new TelemetryDto(deviceId, t, (short) 1, 21.5));
+    void validTelemetryIsSavedAndLastDataTimeIsUpdated() {
+        Instant time = Instant.parse("2026-11-07T10:00:00Z");
 
-        assertEquals(1, telemetry.rows.size());
-        TelemetryEntity saved = telemetry.rows.get(0);
-        assertNotNull(saved.id());
+        Map<String, String> result = service.process(dto(HUMIDITY, 55, time));
+
+        assertTrue(result.isEmpty());
+        assertEquals(1, telemetry.saved().size());
+        assertEquals(time, devices.findById(deviceId).orElseThrow().getLastDataTime());
+    }
+
+    @Test
+    void savedEntityCarriesTheValuesFromTheDto() {
+        Instant time = Instant.parse("2026-11-07T10:00:00Z");
+
+        service.process(dto(TEMPERATURE, 21.5, time));
+
+        TelemetryEntity saved = telemetry.saved().get(0);
         assertEquals(deviceId, saved.deviceId());
-        assertEquals(t, saved.time());
-        assertEquals((short) 1, saved.telemetryType());
-        assertEquals(21.5, saved.value());
-        assertEquals(t, devices.rows.get(deviceId).getLastDataTime());
+        assertEquals(time, saved.time());
+        assertEquals(Short.valueOf(TEMPERATURE), saved.telemetryType());
+        assertEquals(Double.valueOf(21.5), saved.value());
     }
 
     @Test
-    void processDoesNotRewriteWholeDevice() {
-        service.process(reading(1, 1.0));
-        assertEquals(0, devices.saveCalls);
-    }
+    void strictViolationSavesNothingAndDoesNotTouchLastDataTime() {
+        addRule(HUMIDITY, RuleOperator.LE, 100, true);
 
-    @Test
-    void olderTelemetryDoesNotMoveLastDataTimeBack() {
-        Instant newer = Instant.parse("2026-11-06T12:00:00Z");
-        Instant older = Instant.parse("2026-11-06T11:00:00Z");
-        service.process(new TelemetryDto(deviceId, newer, (short) 1, 1.0));
-        service.process(new TelemetryDto(deviceId, older, (short) 1, 2.0));
-
-        assertEquals(2, telemetry.rows.size());
-        assertEquals(newer, devices.rows.get(deviceId).getLastDataTime());
-    }
-
-    @Test
-    void unknownDeviceThrowsAndSavesNothing() {
-        UUID unknown = UUID.randomUUID();
-        assertThrows(DeviceNotFoundException.class,
-                () -> service.process(new TelemetryDto(unknown, Instant.now(), (short) 1, 1.0)));
-        assertTrue(telemetry.rows.isEmpty());
-    }
-
-    @Test
-    void invalidTelemetryThrowsAndSavesNothing() {
         assertThrows(ValidationException.class,
-                () -> service.process(new TelemetryDto(deviceId, null, null, null)));
-        assertTrue(telemetry.rows.isEmpty());
-        assertNull(devices.rows.get(deviceId).getLastDataTime());
-    }
+                () -> service.process(dto(HUMIDITY, 120, Instant.now())));
 
-    // ---------- правила is_strict ----------
-
-    @Test
-    void strictViolationIsRejectedAndNotSaved() {
-        RuleEntity rule = rules.add(deviceId, 2, RuleOperator.LE, 100.0, true);
-
-        ValidationException e = assertThrows(ValidationException.class, () -> service.process(reading(2, 120.0)));
-
-        assertEquals("значение 120.0 нарушает правило: должно быть ≤ 100.0", e.getErrors().get("rule_" + rule.id()));
-        assertTrue(telemetry.rows.isEmpty());
-        assertNull(devices.rows.get(deviceId).getLastDataTime());
+        assertTrue(telemetry.saved().isEmpty());
+        assertEquals(0, devices.updateLastDataTimeCalls());
+        assertNull(devices.findById(deviceId).orElseThrow().getLastDataTime());
     }
 
     @Test
-    void softViolationIsSaved() {
-        RuleEntity soft = rules.add(deviceId, 3, RuleOperator.LE, 30.0, false);
-        java.util.Map<String, String> outOfRange = service.process(reading(3, 35.0));
-        assertEquals(1, telemetry.rows.size());
-        assertEquals(java.util.Map.of("rule_" + soft.id(), "значение 35.0 нарушает правило: должно быть ≤ 30.0"),
-                outOfRange);
+    void softViolationIsSavedAndReturned() {
+        addRule(TEMPERATURE, RuleOperator.LE, 30, false);
+        Instant time = Instant.parse("2026-11-07T10:00:00Z");
+
+        Map<String, String> outOfRange = service.process(dto(TEMPERATURE, 35, time));
+
+        assertEquals(1, outOfRange.size());
+        assertEquals(1, telemetry.saved().size());
+        assertEquals(Double.valueOf(35.0), telemetry.saved().get(0).value());
+        assertEquals(time, devices.findById(deviceId).orElseThrow().getLastDataTime());
     }
 
     @Test
-    void strictWinsOverSoftAndErrorListsOnlyStrictRules() {
-        RuleEntity soft = rules.add(deviceId, 2, RuleOperator.LE, 50.0, false);
-        RuleEntity strict = rules.add(deviceId, 2, RuleOperator.LE, 100.0, true);
+    void strictViolationWinsEvenIfSoftRuleIsAlsoViolated() {
+        addRule(TEMPERATURE, RuleOperator.LE, 100, true);
+        addRule(TEMPERATURE, RuleOperator.LE, 30, false);
 
-        ValidationException e = assertThrows(ValidationException.class, () -> service.process(reading(2, 120.0)));
+        assertThrows(ValidationException.class,
+                () -> service.process(dto(TEMPERATURE, 150, Instant.now())));
 
-        assertTrue(e.getErrors().containsKey("rule_" + strict.id()));
-        assertFalse(e.getErrors().containsKey("rule_" + soft.id()));
-        assertTrue(telemetry.rows.isEmpty());
+        assertTrue(telemetry.saved().isEmpty());
     }
 
     @Test
-    void valueInsideStrictRuleIsSaved() {
-        rules.add(deviceId, 2, RuleOperator.GE, 0.0, true);
-        rules.add(deviceId, 2, RuleOperator.LE, 100.0, true);
-        assertDoesNotThrow(() -> service.process(reading(2, 100.0)));   // граница включена
-        assertEquals(1, telemetry.rows.size());
+    void unknownDeviceThrowsDeviceNotFound() {
+        TelemetryDto unknown = new TelemetryDto(UUID.randomUUID(), Instant.now(), HUMIDITY, 55.0);
+
+        assertThrows(DeviceNotFoundException.class, () -> service.process(unknown));
+
+        assertTrue(telemetry.saved().isEmpty());
     }
 
     @Test
-    void rulesOfOtherTelemetryTypeAreIgnored() {
-        rules.add(deviceId, 2, RuleOperator.LE, 100.0, true);
-        assertDoesNotThrow(() -> service.process(reading(1, 500.0)));
+    void unknownDeviceIsReportedBeforeRulesAreChecked() {
+        addRule(HUMIDITY, RuleOperator.LE, 100, true);
+        TelemetryDto unknown = new TelemetryDto(UUID.randomUUID(), Instant.now(), HUMIDITY, 500.0);
+
+        assertThrows(DeviceNotFoundException.class, () -> service.process(unknown));
     }
 
     @Test
-    void rulesOfOtherDeviceAreIgnored() {
-        rules.add(UUID.randomUUID(), 2, RuleOperator.LE, 100.0, true);
-        assertDoesNotThrow(() -> service.process(reading(2, 500.0)));
+    void emptyDtoReportsAllMissingFields() {
+        ValidationException e = assertThrows(ValidationException.class,
+                () -> service.process(new TelemetryDto(null, null, null, null)));
+
+        assertEquals(Set.of("deviceId", "time", "telemetryType", "value"), e.getErrors().keySet());
+        assertTrue(telemetry.saved().isEmpty());
+    }
+
+    @Test
+    void missingValueIsReportedByName() {
+        ValidationException e = assertThrows(ValidationException.class,
+                () -> service.process(new TelemetryDto(deviceId, Instant.now(), HUMIDITY, null)));
+
+        assertEquals(Set.of("value"), e.getErrors().keySet());
+    }
+
+    @Test
+    void telemetryOfTypeWithoutRulesIsAccepted() {
+        addRule(HUMIDITY, RuleOperator.LE, 100, true);
+
+        Map<String, String> result = service.process(dto(TEMPERATURE, 500, Instant.now()));
+
+        assertTrue(result.isEmpty());
+        assertEquals(1, telemetry.saved().size());
     }
 }

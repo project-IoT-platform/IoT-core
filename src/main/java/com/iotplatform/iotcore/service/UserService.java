@@ -12,9 +12,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class UserService {
-    private static final System.Logger LOG = System.getLogger(UserService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
     private final UserRepository users;
 
@@ -51,9 +53,9 @@ public class UserService {
 
         UserEntity entity = new UserEntity(UUID.randomUUID(), dto.getUsername(), email,
                 dto.getPhone(), dto.getDateOfBirth(), PasswordHasher.hash(dto.getPassword()), role);
-        UserResponse created = toResponse(users.save(entity));
-        LOG.log(System.Logger.Level.INFO, "Пользователь " + created.id() + " (" + email + ") создан");
-        return created;
+        UserResponse response = toResponse(users.save(entity));
+        log.info("User {} created", entity.getId());
+        return response;
     }
 
     public UserResponse update(UUID id, UserDto dto) {
@@ -70,17 +72,16 @@ public class UserService {
         if (dto.getDateOfBirth() != null) user.setDateOfBirth(dto.getDateOfBirth());
         if (dto.getRole() != null) user.setRole(dto.getRole());
         if (dto.getPassword() != null) user.setPasswordHash(PasswordHasher.hash(dto.getPassword()));
+        log.info("Пользователь " + id + " обновлён");
 
-        UserResponse updated = toResponse(users.save(user));
-        LOG.log(System.Logger.Level.INFO, "Пользователь " + id + " обновлён");
-        return updated;
+        return toResponse(users.save(user));
     }
 
     public void delete(UUID id) {
         if (!users.deleteById(id)) {
             throw new UserNotFoundException(id);
         }
-        LOG.log(System.Logger.Level.INFO, "Пользователь " + id + " удалён");
+        log.info("User {} deleted", id);
     }
 
     private UserResponse toResponse(UserEntity e) {

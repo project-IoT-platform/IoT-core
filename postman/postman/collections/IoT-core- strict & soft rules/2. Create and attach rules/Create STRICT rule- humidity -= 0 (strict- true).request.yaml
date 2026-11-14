@@ -1,0 +1,18 @@
+$kind: http-request
+name: "Create STRICT rule: humidity >= 0 (strict: true)"
+url: "{{baseUrl}}/api/rules"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"telemetryType":2,"operator":"GE","value":0,"strict":true}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      const rule = pm.response.json();
+      pm.test('правило строгое', () => pm.expect(rule.strict).to.eql(true));
+      pm.collectionVariables.set('strictGeId', rule.id);
+    language: text/javascript
+order: 1000

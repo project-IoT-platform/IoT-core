@@ -1,0 +1,18 @@
+$kind: http-request
+name: "Create STRICT rule: humidity <= 100 (strict not sent -> default true)"
+url: "{{baseUrl}}/api/rules"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: '{"telemetryType":2,"operator":"LE","value":100}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      const rule = pm.response.json();
+      pm.test('по умолчанию правило строгое', () => pm.expect(rule.strict).to.eql(true));
+      pm.collectionVariables.set('strictLeId', rule.id);
+    language: text/javascript
+order: 2000

@@ -1,22 +1,19 @@
 package com.iotplatform.iotcore.service;
 
 import com.iotplatform.iotcore.dto.TelemetryDto;
+import com.iotplatform.iotcore.entity.DeviceEntity;
 import com.iotplatform.iotcore.entity.TelemetryEntity;
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
-import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.repository.DeviceRepository;
 import com.iotplatform.iotcore.repository.TelemetryRepository;
 
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Приём показаний. Порядок: проверка полей -> устройство существует -> RuleEngine.check -> сохранение.
- * Нарушено строгое правило: RuleEngine бросает ValidationException (HTTP 400), в БД не пишем.
- * Нестрогие нарушения: сохраняем и возвращаем их контроллеру (он пишет в лог и отправляет на проверку нормы).
- */
 public class TelemetryService {
-    private static final System.Logger LOG = System.getLogger(TelemetryService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(TelemetryService.class);
 
     private final DeviceRepository devices;
     private final TelemetryRepository telemetry;
@@ -28,30 +25,23 @@ public class TelemetryService {
         this.ruleEngine = ruleEngine;
     }
 
-    /** Возвращает нестрогие нарушения (пусто, если всё в порядке). */
     public Map<String, String> process(TelemetryDto dto) {
         dto.validate();
-        if (!devices.existsById(dto.deviceId())) {
-            throw new DeviceNotFoundException(dto.deviceId());
-        }
+        DeviceEntity device = devices.findById(dto.deviceId())
+                .orElseThrow(() -> new DeviceNotFoundException(dto.deviceId()));
 
-        Map<String, String> outOfRange;
-        try {
-            outOfRange = ruleEngine.check(dto);
-        } catch (ValidationException e) {
-            LOG.log(System.Logger.Level.WARNING, "ОТКЛОНЕНО (строгое нарушение): " + describe(dto) + " -> " + e.getErrors());
-            throw e;
-        }
+        Map<String, String> outOfRange = ruleEngine.check(dto);
 
         telemetry.save(new TelemetryEntity(UUID.randomUUID(), dto.deviceId(),
                 dto.time(), dto.telemetryType(), dto.value()));
-        // обновляем только last_trans, а не сохраняем устройство целиком
+
         devices.updateLastDataTime(dto.deviceId(), dto.time());
-        LOG.log(System.Logger.Level.INFO, "СОХРАНЕНО: " + describe(dto));
+
+        log.debug("Telemetry saved: device {}, type {}, value {}",
+                dto.deviceId(), dto.telemetryType(), dto.value());
         return outOfRange;
     }
-
-    static String describe(TelemetryDto dto) {
-        return "устройство " + dto.deviceId() + ", тип " + dto.telemetryType() + ", значение " + dto.value();
+        static String describe(TelemetryDto dto) {
+            return "устройство " + dto.deviceId() + ", тип " + dto.telemetryType() + ", значение " + dto.value();
     }
 }

@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{baseUrl}}/api/devices/{{deviceId}}"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      pm.test('верный deviceId', () => pm.expect(pm.response.json().deviceId).to.eql(pm.collectionVariables.get('deviceId')));
+    language: text/javascript
+order: 2000

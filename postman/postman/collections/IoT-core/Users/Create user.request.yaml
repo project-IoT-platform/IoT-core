@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{baseUrl}}/api/users"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email":"test-{{$timestamp}}@example.com","password":"12345678","username":"test"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      const body = pm.response.json();
+      pm.test('в ответе есть id', () => pm.expect(body.id).to.be.a('string'));
+      pm.collectionVariables.set('userId', body.id);
+    language: text/javascript
+order: 1000

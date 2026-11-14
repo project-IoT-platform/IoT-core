@@ -10,9 +10,11 @@ import com.iotplatform.iotcore.repository.UserRepository;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DeviceService {
-    private static final System.Logger LOG = System.getLogger(DeviceService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(DeviceService.class);
 
     private final DeviceRepository devices;
     private final UserRepository users;
@@ -33,7 +35,7 @@ public class DeviceService {
         Instant lastDataTime = devices.findById(dto.getDeviceId())
                 .map(DeviceEntity::getLastDataTime).orElse(null);
         devices.save(toEntity(dto, lastDataTime));
-        LOG.log(System.Logger.Level.INFO, "Устройство " + dto.getDeviceId() + " («" + dto.getName() + "») сохранено");
+        log.info("Device {} saved (user {})", dto.getDeviceId(), dto.getUserId());
     }
 
     public DeviceDto update(UUID id, DeviceDto dto) {
@@ -42,16 +44,15 @@ public class DeviceService {
         checkUserExists(withId.getUserId());
         DeviceEntity existing = devices.findById(id)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
-        DeviceDto saved = toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
-        LOG.log(System.Logger.Level.INFO, "Устройство " + id + " обновлено");
-        return saved;
+        log.info("Устройство " + id + " обновлено");
+        return toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
     }
 
     public void delete(UUID id) {
         if (!devices.deleteById(id)) {
             throw new DeviceNotFoundException(id);
         }
-        LOG.log(System.Logger.Level.INFO, "Устройство " + id + " удалено");
+        log.info("Device {} deleted", id);
     }
 
     private void checkUserExists(UUID userId) {

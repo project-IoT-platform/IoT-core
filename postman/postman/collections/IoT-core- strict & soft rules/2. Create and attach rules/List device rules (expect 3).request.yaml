@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{baseUrl}}/api/devices/{{deviceId}}/rules"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      const rules = pm.response.json();
+      pm.test('привязаны 3 правила', () => pm.expect(rules).to.have.lengthOf(3));
+      pm.test('2 строгих и 1 нестрогое', () => {
+        pm.expect(rules.filter(r => r.strict)).to.have.lengthOf(2);
+        pm.expect(rules.filter(r => !r.strict)).to.have.lengthOf(1);
+      });
+    language: text/javascript
+order: 12000
