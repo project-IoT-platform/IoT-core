@@ -8,6 +8,8 @@ import com.iotplatform.iotcore.dto.TelemetryDto;
 import com.iotplatform.iotcore.repository.DeviceRepository;
 
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Проверки на норму после того, как данные прошли валидацию и сохранены.
@@ -15,7 +17,7 @@ import java.util.UUID;
  * Ошибка внутри проверки не ломает запрос: данные уже сохранены, поэтому ошибку только пишем в лог.
  */
 public class AlertService {
-    private static final System.Logger LOG = System.getLogger(AlertService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(AlertService.class);
 
     private final TelemetryNormChecker telemetryChecker;
     private final BatteryChecker batteryChecker;
@@ -35,14 +37,14 @@ public class AlertService {
         try {
             TelemetryCheckResult r = telemetryChecker.check(t.deviceId(), t.telemetryType(), t.value());
             if (r == null || !r.outOfNorm()) {
-                LOG.log(System.Logger.Level.DEBUG, "Телеметрия в норме: устройство " + t.deviceId());
+                log.debug("Telemetry within norm: device {}", t.deviceId());
                 return;
             }
-            LOG.log(System.Logger.Level.INFO, "Телеметрия вне нормы: устройство " + t.deviceId()
-                    + ", тип " + t.telemetryType() + ", " + r + " -> отправляем уведомление");
+            log.info("Telemetry out of norm: device {}, type {}, {} -> sending notification",
+                    t.deviceId(), t.telemetryType(), r);
             notifications.telemetryAlert(t, r);
         } catch (RuntimeException e) {
-            LOG.log(System.Logger.Level.ERROR, "Ошибка проверки телеметрии устройства " + t.deviceId(), e);
+            log.error("Telemetry check failed for device {}", t.deviceId(), e);
         }
     }
 
@@ -56,21 +58,20 @@ public class AlertService {
             BatteryCheckResult r = batteryChecker.check(deviceId, batteryLevel);
             if (r == null || !r.low()) {
                 if (devices.enableBatteryNotification(deviceId)) {
-                    LOG.log(System.Logger.Level.INFO, "Заряд устройства " + deviceId + " снова в норме ("
-                            + batteryLevel + "%): уведомление о разряде снова разрешено");
+                    log.info("Battery of device {} is back to normal ({}%): low battery notification enabled again",
+                            deviceId, batteryLevel);
                 }
                 return;
             }
             if (devices.disableBatteryNotification(deviceId)) {
-                LOG.log(System.Logger.Level.INFO, "Низкий заряд устройства " + deviceId + ": " + r
-                        + " -> отправляем уведомление");
+                log.info("Low battery on device {}: {} -> sending notification", deviceId, r);
                 notifications.batteryLow(deviceId, r);
             } else {
-                LOG.log(System.Logger.Level.INFO, "Низкий заряд устройства " + deviceId + " (" + batteryLevel
-                        + "%): уведомление уже отправляли, повторно не шлём");
+                log.info("Low battery on device {} ({}%): notification already sent, not sending again",
+                        deviceId, batteryLevel);
             }
         } catch (RuntimeException e) {
-            LOG.log(System.Logger.Level.ERROR, "Ошибка проверки заряда устройства " + deviceId, e);
+            log.error("Battery check failed for device {}", deviceId, e);
         }
     }
 }

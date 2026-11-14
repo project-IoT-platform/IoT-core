@@ -28,8 +28,7 @@ final class ApiHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest request) {
         // есл кл шлт поломанный http
         if (!request.decoderResult().isSuccess()) {
-            LOG.log(System.Logger.Level.WARNING, "Некорректный HTTP-запрос от " + ctx.channel().remoteAddress()
-                    + ": " + request.decoderResult().cause());
+            log.warn("Malformed HTTP request from {}: {}", ctx.channel().remoteAddress(), request.decoderResult().cause());
             send(ctx, request, new ApiRouter.Response(400, null), false);
             return;
         }

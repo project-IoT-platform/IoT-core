@@ -78,7 +78,9 @@ public class PostgresDeviceRepository implements DeviceRepository {
     }
     @Override
     public int updateLastDataTime(UUID id, Instant lastTrans) { //для обновления из телеметрии
-        return databaseUtils.update("UPDATE device SET last_trans = ? WHERE id = ?", lastTrans, id);
+        return databaseUtils.update(
+                "UPDATE device SET last_trans = ? WHERE id = ? AND (last_trans IS NULL OR last_trans < ?)",
+                lastTrans, id, lastTrans);
     }
 
     // Проверка и смена флага одним UPDATE: даже если два запроса придут одновременно,

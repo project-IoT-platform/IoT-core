@@ -7,8 +7,6 @@ import com.iotplatform.iotcore.db.DatabaseUtils;
 import com.iotplatform.iotcore.http.HttpApi;
 import com.iotplatform.iotcore.repository.*;
 import com.iotplatform.iotcore.service.*;
-import com.iotplatform.iotcore.telegram.TelegramBot;
-import com.iotplatform.iotcore.telegram.TelegramClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,16 +34,14 @@ public class IotCoreMain {
         UserService userService = new UserService(userRepository);
         TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository, ruleEngine);
         RuleService ruleService = new RuleService(ruleRepository, deviceRepository);
-        TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository,
-                new RuleEngine(ruleRepository));
         // ЗАГЛУШКИ: когда тиммейт допишет проверки, подставить сюда его классы вместо Stub...
         AlertService alertService = new AlertService(new StubTelemetryNormChecker(), new StubBatteryChecker(),
                 deviceRepository, notificationService);
 
         HttpApi api = new HttpApi(port,
-                new DeviceController(deviceService, notificationService),
-                new UserController(userService),
-                new TelemetryController(telemetryService, notificationService),
+                new DeviceController(deviceService, notificationService, alertService),
+                new UserController(userService, notificationService),
+                new TelemetryController(telemetryService, alertService),
                 new NotificationController(notificationService),
                 new RuleController(ruleService));
         api.start();

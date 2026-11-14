@@ -3,6 +3,7 @@ package com.iotplatform.iotcore.http;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.iotplatform.iotcore.controller.DeviceController;
 import com.iotplatform.iotcore.controller.NotificationController;
+import com.iotplatform.iotcore.controller.RuleController;
 import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
 import com.iotplatform.iotcore.check.StubBatteryChecker;
@@ -20,6 +21,7 @@ import com.iotplatform.iotcore.model.RuleOperator;
 import com.iotplatform.iotcore.service.AlertService;
 import com.iotplatform.iotcore.service.DeviceService;
 import com.iotplatform.iotcore.service.RuleEngine;
+import com.iotplatform.iotcore.service.RuleService;
 import com.iotplatform.iotcore.service.TelemetryService;
 import com.iotplatform.iotcore.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +61,8 @@ class ApiRouterTest {
                 new DeviceController(new DeviceService(deviceRepo, users), notifications, alerts),
                 new UserController(new UserService(users), notifications),
                 new TelemetryController(new TelemetryService(deviceRepo, telemetry, new RuleEngine(rules)), alerts),
-                new NotificationController(notifications));
+                new NotificationController(notifications),
+                new RuleController(new RuleService(rules, deviceRepo)));
     }
 
     private ApiRouter.Response call(String method, String uri, String body) {
@@ -276,7 +279,7 @@ class ApiRouterTest {
                 "{\"deviceId\":\"" + id + "\",\"time\":\"2026-11-06T12:00:00Z\",\"telemetryType\":2,\"value\":120}");
 
         assertEquals(400, r.status());
-        assertEquals("значение 120.0 нарушает правило: должно быть ≤ 100.0", json(r).get("rule_" + rule.id()));
+        assertEquals("значение 120.0 нарушает правило: должно быть <= 100.0", json(r).get("rule_" + rule.id()));
         assertTrue(telemetry.rows.isEmpty());
     }
 

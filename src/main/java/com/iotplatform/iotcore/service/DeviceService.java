@@ -44,7 +44,7 @@ public class DeviceService {
         checkUserExists(withId.getUserId());
         DeviceEntity existing = devices.findById(id)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
-        log.info("Устройство " + id + " обновлено");
+        log.info("Device {} updated", id);
         return toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
     }
 

@@ -72,7 +72,7 @@ public class UserService {
         if (dto.getDateOfBirth() != null) user.setDateOfBirth(dto.getDateOfBirth());
         if (dto.getRole() != null) user.setRole(dto.getRole());
         if (dto.getPassword() != null) user.setPasswordHash(PasswordHasher.hash(dto.getPassword()));
-        log.info("Пользователь " + id + " обновлён");
+        log.info("User {} updated", id);
 
         return toResponse(users.save(user));
     }

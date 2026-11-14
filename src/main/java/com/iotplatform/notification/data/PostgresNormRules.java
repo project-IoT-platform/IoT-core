@@ -11,6 +11,8 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Команда /norm в таблицах rule и device_to_rule. Всё в одной транзакции: либо всё записалось, либо ничего.
@@ -21,7 +23,7 @@ import java.util.UUID;
  *      и перепривязываем на неё только это устройство (у остальных норма не меняется).
  */
 public class PostgresNormRules implements NormRules {
-    private static final System.Logger LOG = System.getLogger(PostgresNormRules.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(PostgresNormRules.class);
 
     static final String FIND = "SELECT r.id, r.is_strict, "
             + "(SELECT COUNT(*) FROM device_to_rule x WHERE x.rule_id = r.id) AS links "
@@ -48,8 +50,7 @@ public class PostgresNormRules implements NormRules {
             try {
                 Result result = apply(c, deviceId, telemetryType, operator, value);
                 c.commit();
-                LOG.log(System.Logger.Level.INFO, "Норма устройства " + deviceId + ": тип " + telemetryType + " "
-                        + operator.symbol() + " " + value + " (" + result + ")");
+                log.info("Device {} norm: type {} {} {} ({})", deviceId, telemetryType, operator.symbol(), value, result);
                 return result;
             } catch (SQLException | RuntimeException e) {
                 c.rollback();

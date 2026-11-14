@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * HTTP-вход сервиса уведомлений (встроенный сервер из JDK, без библиотек). Принимает запросы от IoT Core:
@@ -34,7 +36,7 @@ import java.util.concurrent.Executors;
  *   PUT  /settings                   тело {"norm":..,"deviation":..} -> 200 или 400
  */
 public class ApiServer {
-    private static final System.Logger LOG = System.getLogger(ApiServer.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(ApiServer.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final NotificationService service;
@@ -71,25 +73,29 @@ public class ApiServer {
             byte[] raw = ex.getRequestBody().readAllBytes();
             route(ex, ex.getRequestMethod(), path, raw);
         } catch (JsonProcessingException e) {
-            LOG.log(System.Logger.Level.WARNING, request + ": некорректный JSON: " + e.getOriginalMessage());
+            log.warn("{}: invalid JSON: {}", request, e.getOriginalMessage());
             send(ex, 400, Map.of("error", "Некорректный JSON"));
         } catch (ValidationException e) {
-            LOG.log(System.Logger.Level.WARNING, request + ": " + e.getErrors());
+            log.warn("{}: {}", request, e.getErrors());
             send(ex, 400, e.getErrors());
         } catch (NotFoundException e) {
             send(ex, 404, Map.of("error", e.getMessage()));
         } catch (IllegalArgumentException | DateTimeException e) {
-            LOG.log(System.Logger.Level.WARNING, request + ": " + e.getMessage());
+            log.warn("{}: {}", request, e.getMessage());
             send(ex, 400, Map.of("error", String.valueOf(e.getMessage())));
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Внутренняя ошибка при " + request, e);
+            log.error("Internal error while handling {}", request, e);
             send(ex, 500, Map.of("error", "Внутренняя ошибка сервера"));
         } finally {
             long ms = (System.nanoTime() - start) / 1_000_000;
             int status = ex.getResponseCode();
-            System.Logger.Level level = status >= 500 ? System.Logger.Level.ERROR
-                    : status >= 400 ? System.Logger.Level.WARNING : System.Logger.Level.INFO;
-            LOG.log(level, request + " -> " + status + " (" + ms + " мс)");
+            if (status >= 500) {
+                log.error("{} -> {} ({} ms)", request, status, ms);
+            } else if (status >= 400) {
+                log.warn("{} -> {} ({} ms)", request, status, ms);
+            } else {
+                log.info("{} -> {} ({} ms)", request, status, ms);
+            }
             ex.close();
         }
     }

@@ -1,7 +1,6 @@
 package com.iotplatform.iotcore.service;
 
 import com.iotplatform.iotcore.dto.TelemetryDto;
-import com.iotplatform.iotcore.entity.DeviceEntity;
 import com.iotplatform.iotcore.entity.TelemetryEntity;
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
 import com.iotplatform.iotcore.repository.DeviceRepository;
@@ -27,8 +26,9 @@ public class TelemetryService {
 
     public Map<String, String> process(TelemetryDto dto) {
         dto.validate();
-        DeviceEntity device = devices.findById(dto.deviceId())
-                .orElseThrow(() -> new DeviceNotFoundException(dto.deviceId()));
+        if (!devices.existsById(dto.deviceId())) {
+            throw new DeviceNotFoundException(dto.deviceId());
+        }
 
         Map<String, String> outOfRange = ruleEngine.check(dto);
 
@@ -41,7 +41,7 @@ public class TelemetryService {
                 dto.deviceId(), dto.telemetryType(), dto.value());
         return outOfRange;
     }
-        static String describe(TelemetryDto dto) {
-            return "устройство " + dto.deviceId() + ", тип " + dto.telemetryType() + ", значение " + dto.value();
+    static String describe(TelemetryDto dto) {
+        return "устройство " + dto.deviceId() + ", тип " + dto.telemetryType() + ", значение " + dto.value();
     }
 }

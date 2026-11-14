@@ -12,10 +12,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Низкоуровневый клиент Telegram API: отправить сообщение и получить новые сообщения. */
 public class TelegramClient {
-    private static final System.Logger LOG = System.getLogger(TelegramClient.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(TelegramClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final HttpClient http;
@@ -44,21 +46,20 @@ public class TelegramClient {
     /** Асинхронная отправка (ответы бота). */
     public void sendMessage(long chatId, String text) {
         if (!isConfigured()) {
-            LOG.log(System.Logger.Level.WARNING, "Telegram не настроен, сообщение не отправлено");
+            log.warn("Telegram is not configured, message not sent");
             return;
         }
         try {
             http.sendAsync(sendRequest(chatId, text), HttpResponse.BodyHandlers.ofString())
                     .whenComplete((resp, err) -> {
                         if (err != null) {
-                            LOG.log(System.Logger.Level.ERROR, "Не удалось отправить сообщение в Telegram", err);
+                            log.error("Failed to send message to Telegram", err);
                         } else if (resp.statusCode() != 200) {
-                            LOG.log(System.Logger.Level.ERROR,
-                                    "Telegram вернул " + resp.statusCode() + ": " + resp.body());
+                            log.error("Telegram returned {}: {}", resp.statusCode(), resp.body());
                         }
                     });
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Ошибка при отправке в Telegram", e);
+            log.error("Error while sending to Telegram", e);
         }
     }
 

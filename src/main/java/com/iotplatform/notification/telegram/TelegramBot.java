@@ -25,6 +25,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Telegram-бот: опрашивает Telegram, привязывает чат, когда пользователь присылает свой UUID,
@@ -32,7 +34,7 @@ import java.util.regex.Pattern;
  * device_to_rule. Команда /deviation убрана. В группах бот молчит.
  */
 public class TelegramBot {
-    private static final System.Logger LOG = System.getLogger(TelegramBot.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(TelegramBot.class);
 
     private static final String ASK_ID =
             "Привет! Чтобы пользоваться ботом, отправьте ваш id пользователя на платформе "
@@ -85,14 +87,14 @@ public class TelegramBot {
 
     public void start() {
         if (!telegram.isConfigured()) {
-            LOG.log(System.Logger.Level.WARNING, "Telegram-бот не запущен: не задан TELEGRAM_BOT_TOKEN");
+            log.warn("Telegram bot not started: TELEGRAM_BOT_TOKEN is not set");
             return;
         }
         running = true;
         thread = new Thread(this::pollLoop, "telegram-bot");
         thread.setDaemon(true);
         thread.start();
-        LOG.log(System.Logger.Level.INFO, "Telegram-бот запущен");
+        log.info("Telegram bot started");
     }
 
     public void stop() {
@@ -112,7 +114,7 @@ public class TelegramBot {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Exception e) {
-                LOG.log(System.Logger.Level.ERROR, "Ошибка опроса Telegram", e);
+                log.error("Telegram polling error", e);
                 try {
                     Thread.sleep(5000);
                 } catch (InterruptedException ie) {
@@ -134,8 +136,8 @@ public class TelegramBot {
 
     /** Ответ бота на входящее сообщение. public, чтобы его можно было проверить без сети. */
     public String handle(long chatId, String text) {
-        LOG.log(System.Logger.Level.INFO, "Telegram, чат " + chatId + ": "
-                + (parseUuid(text).isPresent() ? "прислан id пользователя" : command(text)));
+        log.info("Telegram, chat {}: {}", chatId,
+                parseUuid(text).isPresent() ? "user id received" : command(text));
         try {
             Optional<UUID> sentId = parseUuid(text);
             if (sentId.isPresent()) return login(chatId, sentId.get());
@@ -150,7 +152,7 @@ public class TelegramBot {
             }
             return handleCommand(text, user.get());
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Ошибка обработки сообщения из чата " + chatId + ": " + command(text), e);
+            log.error("Failed to handle message from chat {}: {}", chatId, command(text), e);
             return "Внутренняя ошибка.";
         }
     }

@@ -27,6 +27,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Главная логика сервиса уведомлений. ИЗМЕНЕНО: проверки на норму теперь делает IoT Core,
@@ -34,7 +36,7 @@ import java.util.UUID;
  * уведомления. Ответы для бота: /status, /avg, /settings, /norm, /battery.
  */
 public class NotificationService {
-    private static final System.Logger LOG = System.getLogger(NotificationService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
     private final PlatformData platform;
     private final SettingsStore settings;
@@ -60,29 +62,29 @@ public class NotificationService {
 
     public void notifyRegistered(Device d) {
         if (d.userId() == null) {
-            LOG.log(System.Logger.Level.INFO, "Регистрация устройства " + d.id() + ": нет владельца, письмо не шлём");
+            log.info("Device {} registration: no owner, email not sent", d.id());
             return;
         }
-        LOG.log(System.Logger.Level.INFO, "Регистрация устройства " + d.id() + ": уведомляем владельца " + d.userId());
+        log.info("Device {} registration: notifying owner {}", d.id(), d.userId());
         dispatcher.send(Notifications.deviceRegistered(d, Instant.now()));
     }
 
     /** Новый пользователь: письмо с его id. */
     public void notifyUserRegistered(UUID userId, String username) {
-        LOG.log(System.Logger.Level.INFO, "Регистрация пользователя " + userId + ": отправляем письмо с id");
+        log.info("User {} registration: sending email with id", userId);
         dispatcher.send(Notifications.userRegistered(userId, username, Instant.now()));
     }
 
     /** IoT Core уже решил, что заряд ниже нормы и что уведомление нужно (повторы он отсекает сам). */
     public void batteryLow(UUID deviceId, int level, Integer belowBy, Integer lowerBound) {
-        Optional<Device> d = ownedDevice(deviceId, "низкий заряд");
+        Optional<Device> d = ownedDevice(deviceId, "Low battery");
         d.ifPresent(device -> dispatcher.send(
                 Notifications.lowBattery(device, level, belowBy, lowerBound, Instant.now())));
     }
 
     /** IoT Core уже решил, что показание вне нормы. */
     public void telemetryAlert(Reading r, Double deviation, Double lowerBound, Double upperBound) {
-        Optional<Device> d = ownedDevice(r.deviceId(), "отклонение телеметрии");
+        Optional<Device> d = ownedDevice(r.deviceId(), "Telemetry deviation");
         d.ifPresent(device -> dispatcher.send(
                 Notifications.telemetryAlert(device, r, deviation, lowerBound, upperBound, Instant.now())));
     }
@@ -90,14 +92,14 @@ public class NotificationService {
     private Optional<Device> ownedDevice(UUID deviceId, String what) {
         Optional<Device> d = platform.findDevice(deviceId);
         if (d.isEmpty()) {
-            LOG.log(System.Logger.Level.WARNING, what + ": устройство " + deviceId + " не найдено, уведомление не шлём");
+            log.warn("{}: device {} not found, notification not sent", what, deviceId);
             return Optional.empty();
         }
         if (d.get().userId() == null) {
-            LOG.log(System.Logger.Level.INFO, what + ": у устройства " + deviceId + " нет владельца, уведомлять некого");
+            log.info("{}: device {} has no owner, nobody to notify", what, deviceId);
             return Optional.empty();
         }
-        LOG.log(System.Logger.Level.INFO, what + ": устройство " + deviceId + ", уведомляем " + d.get().userId());
+        log.info("{}: device {}, notifying {}", what, deviceId, d.get().userId());
         return d;
     }
 

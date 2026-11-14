@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Рассылает уведомление по всем каналам. Ошибка одного канала не мешает другим: она пишется в лог.
@@ -14,7 +16,7 @@ import java.util.concurrent.RejectedExecutionException;
  * Executor передаётся снаружи: в Main это пул потоков, в тестах Runnable::run (всё выполняется сразу).
  */
 public class Dispatcher {
-    private static final System.Logger LOG = System.getLogger(Dispatcher.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(Dispatcher.class);
 
     public record Result(String channel, Channel.Status status, String error) {}
 
@@ -30,7 +32,7 @@ public class Dispatcher {
         try {
             executor.execute(() -> deliver(n));
         } catch (RejectedExecutionException e) {
-            LOG.log(System.Logger.Level.WARNING, "Уведомление не отправлено: сервис останавливается");
+            log.warn("Notification not sent: service is shutting down");
         }
     }
 
@@ -45,17 +47,16 @@ public class Dispatcher {
                 }
                 results.add(new Result(channel.name(), channel.send(n), null));
             } catch (DeliveryException e) {
-                LOG.log(System.Logger.Level.ERROR, "Не удалось отправить " + n.type()
-                        + " по каналу " + channel.name() + ": " + e.getMessage());
+                log.error("Failed to send {} via channel {}: {}", n.type(), channel.name(), e.getMessage());
                 results.add(new Result(channel.name(), Channel.Status.FAILED, e.getMessage()));
             } catch (Exception e) {
-                LOG.log(System.Logger.Level.ERROR, "Непредвиденная ошибка канала " + channel.name(), e);
+                log.error("Unexpected error in channel {}", channel.name(), e);
                 results.add(new Result(channel.name(), Channel.Status.FAILED, String.valueOf(e)));
             }
         }
-        StringBuilder line = new StringBuilder("Уведомление " + n.type() + " для пользователя " + n.userId() + ":");
+        StringBuilder line = new StringBuilder("Notification " + n.type() + " for user " + n.userId() + ":");
         for (Result r : results) line.append(' ').append(r.channel()).append('=').append(r.status());
-        LOG.log(System.Logger.Level.INFO, line.toString());
+        log.info(line.toString());
         return results;
     }
 }

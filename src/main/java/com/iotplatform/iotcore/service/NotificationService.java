@@ -5,8 +5,6 @@ import com.iotplatform.iotcore.check.BatteryCheckResult;
 import com.iotplatform.iotcore.check.TelemetryCheckResult;
 import com.iotplatform.iotcore.dto.DeviceDto;
 import com.iotplatform.iotcore.dto.TelemetryDto;
-import com.iotplatform.iotcore.entity.DeviceEntity;
-import com.iotplatform.iotcore.entity.UserEntity;
 import com.iotplatform.iotcore.dto.UserResponse;
 
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
@@ -20,11 +18,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
-import java.util.OptionalDouble;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,18 +50,6 @@ public class NotificationService {
         body.put("email", user.email());
         sendEvent("/events/user-registered", body);
     }
-    public void checkBattery(DeviceDto device) {
-        Integer level = device.getBatteryLevel();
-        UUID id = device.getDeviceId();
-        if (level == null || id == null) return;
-
-        if (level >= LOW_BATTERY_PERCENT) {
-            lowBatteryNotified.remove(id);
-            return;
-        }
-        if (device.getUserId() == null) return;
-        if (!lowBatteryNotified.add(id)) return;
-        log.info("Low battery: device {}, level {}%", id, level);
 
     /** Заряд ниже нормы (результат проверки заряда). */
     public void batteryLow(UUID deviceId, BatteryCheckResult r) {
@@ -89,20 +72,6 @@ public class NotificationService {
         body.put("lowerBound", r.lowerBound());
         body.put("upperBound", r.upperBound());
         sendEvent("/events/telemetry-alert", body);
-    }
-
-    public String deviceStatusText(UUID deviceId, UserEntity requester) {
-        return statusLine(deviceFor(deviceId, requester));
-    }
-
-    public String deviceAverageText(UUID deviceId, UserEntity requester) {
-        DeviceEntity device = deviceFor(deviceId, requester);
-        OptionalDouble avg = telemetry.averageValueSince(deviceId, Instant.now().minus(AVERAGE_WINDOW));
-        if (avg.isEmpty()) {
-            return "Устройство " + device.getName() + ": за последний час показаний нет";
-        }
-        return String.format(Locale.ROOT, "Устройство %s: среднее за последний час: %.2f",
-                device.getName(), avg.getAsDouble());
     }
 
     public DeviceState sendDeviceStatus(UUID deviceId) {
@@ -152,25 +121,24 @@ public class NotificationService {
     private void sendEvent(String path, Object body) {
         try {
             String json = Json.MAPPER.writeValueAsString(body);
-            log.info("-> сервис уведомлений: POST " + path + " " + json);
+            log.info("-> notification service: POST {} {}", path, json);
             http.sendAsync(request(path).POST(HttpRequest.BodyPublishers.ofString(json)).build(),
                             HttpResponse.BodyHandlers.ofString())
                     .whenComplete((resp, err) -> {
                         if (err != null) {
                             // одной строкой, без стектрейса: «сервис выключен» — не ошибка в нашем коде
                             Throwable cause = err.getCause() != null ? err.getCause() : err;
-                            log.error("Сервис уведомлений недоступен (" + baseUrl + "), событие "
-                                    + path + " не доставлено: " + cause.getClass().getSimpleName()
-                                    + (cause.getMessage() != null ? " " + cause.getMessage() : ""));
+                            log.error("Notification service is unavailable ({}), event {} not delivered: {}{}",
+                                    baseUrl, path, cause.getClass().getSimpleName(),
+                                    cause.getMessage() != null ? " " + cause.getMessage() : "");
                         } else if (resp.statusCode() >= 300) {
-                            log.error("Сервис уведомлений ответил " + resp.statusCode() + " на " + path + ": " + resp.body());
+                            log.error("Notification service responded {} to {}: {}", resp.statusCode(), path, resp.body());
                         } else {
-                            log.info("<- сервис уведомлений: " + path + " " + resp.statusCode());
+                            log.info("<- notification service: {} {}", path, resp.statusCode());
                         }
                     });
         } catch (Exception e) {
-            log.info("Не удалось отправить событие в сервис уведомлений", e);
-            log.error("Failed to send notification", e);
+            log.error("Failed to send event to notification service", e);
         }
     }
 
