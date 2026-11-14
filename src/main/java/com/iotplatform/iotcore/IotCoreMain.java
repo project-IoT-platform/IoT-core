@@ -24,7 +24,7 @@ import com.iotplatform.iotcore.service.TelemetryService;
 import com.iotplatform.iotcore.service.UserService;
 
 /** Точка входа IoT Core: собирает слои (БД, сервисы, контроллеры) и запускает HTTP-сервер. */
-public class Main {
+public class IotCoreMain {
     public static void main(String[] args) {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8082"));
         // Адрес сервиса уведомлений. Telegram-токен, SMTP и нормы теперь живут в нём, а не здесь.

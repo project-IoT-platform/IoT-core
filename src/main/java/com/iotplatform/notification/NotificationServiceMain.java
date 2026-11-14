@@ -25,7 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** Точка входа сервиса уведомлений: читает настройки, собирает все части и запускает бота и HTTP-приёмник. */
-public class Main {
+public class NotificationServiceMain {
     public static void main(String[] args) throws Exception {
         Config config = Config.fromEnvironment();
         if (config.dbUrl == null) {
