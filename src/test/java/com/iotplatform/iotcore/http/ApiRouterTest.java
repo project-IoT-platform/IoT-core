@@ -7,7 +7,6 @@ import com.iotplatform.iotcore.controller.RuleController;
 import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
 import com.iotplatform.iotcore.check.StubBatteryChecker;
-import com.iotplatform.iotcore.check.StubTelemetryNormChecker;
 import com.iotplatform.iotcore.entity.DeviceEntity;
 import com.iotplatform.iotcore.entity.RuleEntity;
 import com.iotplatform.iotcore.exception.DatabaseException;
@@ -55,7 +54,7 @@ class ApiRouterTest {
     }
 
     private ApiRouter routerWith(FakeDeviceRepository deviceRepo) {
-        AlertService alerts = new AlertService(new StubTelemetryNormChecker(), new StubBatteryChecker(),
+        AlertService alerts = new AlertService(new StubBatteryChecker(),
                 deviceRepo, notifications);
         return new ApiRouter(
                 new DeviceController(new DeviceService(deviceRepo, users), notifications, alerts),

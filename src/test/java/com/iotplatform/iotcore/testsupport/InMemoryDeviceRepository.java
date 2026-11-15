@@ -6,14 +6,17 @@ import com.iotplatform.iotcore.repository.DeviceRepository;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** Фейк вместо БД: устройства в памяти + счётчик вызовов updateLastDataTime. */
 public class InMemoryDeviceRepository implements DeviceRepository {
     private final Map<UUID, DeviceEntity> devices = new HashMap<>();
     private int updateLastDataTimeCalls;
+    private final Set<UUID> batteryNotifyDisabled = new HashSet<>();
 
     /** Быстро положить в «БД» устройство без владельца и без последних данных. */
     public DeviceEntity addDevice(UUID id) {
@@ -52,5 +55,15 @@ public class InMemoryDeviceRepository implements DeviceRepository {
         if (device == null) return 0;
         device.setLastDataTime(lastTrans);
         return 1;
+    }
+
+    @Override
+    public boolean disableBatteryNotification(UUID id) {
+        return devices.containsKey(id) && batteryNotifyDisabled.add(id);
+    }
+
+    @Override
+    public boolean enableBatteryNotification(UUID id) {
+        return batteryNotifyDisabled.remove(id);
     }
 }

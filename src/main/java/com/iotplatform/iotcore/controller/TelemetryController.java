@@ -36,7 +36,7 @@ public class TelemetryController {
                     dto.deviceId(), dto.telemetryType(), dto.value(), outOfRange);
         }
 
-        alerts.onTelemetry(dto);   // проверка на норму -> при отклонении уведомление
+        alerts.onTelemetry(dto, outOfRange);   // проверка на норму -> при отклонении уведомление
     }
 }
 

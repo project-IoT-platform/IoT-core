@@ -3,10 +3,10 @@ package com.iotplatform.iotcore.service;
 import com.iotplatform.iotcore.check.BatteryCheckResult;
 import com.iotplatform.iotcore.check.BatteryChecker;
 import com.iotplatform.iotcore.check.TelemetryCheckResult;
-import com.iotplatform.iotcore.check.TelemetryNormChecker;
 import com.iotplatform.iotcore.dto.TelemetryDto;
 import com.iotplatform.iotcore.repository.DeviceRepository;
 
+import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,32 +19,28 @@ import org.slf4j.LoggerFactory;
 public class AlertService {
     private static final Logger log = LoggerFactory.getLogger(AlertService.class);
 
-    private final TelemetryNormChecker telemetryChecker;
     private final BatteryChecker batteryChecker;
     private final DeviceRepository devices;
     private final NotificationService notifications;
 
-    public AlertService(TelemetryNormChecker telemetryChecker, BatteryChecker batteryChecker,
+    public AlertService(BatteryChecker batteryChecker,
                         DeviceRepository devices, NotificationService notifications) {
-        this.telemetryChecker = telemetryChecker;
         this.batteryChecker = batteryChecker;
         this.devices = devices;
         this.notifications = notifications;
     }
 
-    /** Показание вне нормы: отправляем в сервис уведомлений каждый раз. */
-    public void onTelemetry(TelemetryDto t) {
+    public void onTelemetry(TelemetryDto t, Map<String, String> ruleViolations) {
+        if (ruleViolations == null || ruleViolations.isEmpty()) {
+            log.debug("Telemetry within rules: device {}", t.deviceId());
+            return;
+        }
         try {
-            TelemetryCheckResult r = telemetryChecker.check(t.deviceId(), t.telemetryType(), t.value());
-            if (r == null || !r.outOfNorm()) {
-                log.debug("Telemetry within norm: device {}", t.deviceId());
-                return;
-            }
-            log.info("Telemetry out of norm: device {}, type {}, {} -> sending notification",
-                    t.deviceId(), t.telemetryType(), r);
-            notifications.telemetryAlert(t, r);
+            log.info("Telemetry violates rules: device {}, type {}, {} -> sending notification",
+                    t.deviceId(), t.telemetryType(), ruleViolations);
+            notifications.telemetryAlert(t, new TelemetryCheckResult(true, t.value(), null, null, null));
         } catch (RuntimeException e) {
-            log.error("Telemetry check failed for device {}", t.deviceId(), e);
+            log.error("Rule violation notification failed for device {}", t.deviceId(), e);
         }
     }
 

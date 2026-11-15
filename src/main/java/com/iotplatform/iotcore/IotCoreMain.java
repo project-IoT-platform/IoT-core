@@ -2,7 +2,6 @@ package com.iotplatform.iotcore;
 
 import com.iotplatform.iotcore.controller.*;
 import com.iotplatform.iotcore.check.StubBatteryChecker;
-import com.iotplatform.iotcore.check.StubTelemetryNormChecker;
 import com.iotplatform.iotcore.db.DatabaseUtils;
 import com.iotplatform.iotcore.http.HttpApi;
 import com.iotplatform.iotcore.repository.*;
@@ -35,7 +34,7 @@ public class IotCoreMain {
         TelemetryService telemetryService = new TelemetryService(deviceRepository, telemetryRepository, ruleEngine);
         RuleService ruleService = new RuleService(ruleRepository, deviceRepository);
         // ЗАГЛУШКИ: когда тиммейт допишет проверки, подставить сюда его классы вместо Stub...
-        AlertService alertService = new AlertService(new StubTelemetryNormChecker(), new StubBatteryChecker(),
+        AlertService alertService = new AlertService(new StubBatteryChecker(),
                 deviceRepository, notificationService);
 
         HttpApi api = new HttpApi(port,

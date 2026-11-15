@@ -1,7 +1,6 @@
 package com.iotplatform.iotcore.controller;
 
 import com.iotplatform.iotcore.check.BatteryCheckResult;
-import com.iotplatform.iotcore.check.TelemetryCheckResult;
 import com.iotplatform.iotcore.dto.DeviceDto;
 import com.iotplatform.iotcore.dto.TelemetryDto;
 import com.iotplatform.iotcore.dto.UserDto;
@@ -52,9 +51,8 @@ class ControllersTest {
         telemetry = new FakeTelemetryRepository();
         rules = new FakeRuleRepository();
         notifications = new RecordingNotificationService();
-        // вместо функций тиммейта: заряд < 20 низкий; телеметрия > 25 вне нормы
+        // вместо функции тиммейта: заряд < 20 низкий
         AlertService alerts = new AlertService(
-                (id, type, v) -> v > 25 ? new TelemetryCheckResult(true, v, v - 25, null, 25.0) : TelemetryCheckResult.normal(),
                 (id, level) -> level < 20 ? new BatteryCheckResult(true, level, 20 - level, 20) : BatteryCheckResult.normal(),
                 devices, notifications);
 
@@ -126,6 +124,7 @@ class ControllersTest {
     void telemetryOutOfNormIsSavedAndSentToNotifications() {
         UUID id = UUID.randomUUID();
         devices.save(new DeviceEntity(id, null, "n", null, null, "m", DeviceState.ON, null));
+        rules.add(id, 1, RuleOperator.LE, 25.0, false);
         TelemetryDto dto = new TelemetryDto(id, Instant.now(), (short) 1, 30.0);
 
         telemetryController.receive(dto);
@@ -133,7 +132,7 @@ class ControllersTest {
         assertEquals(1, telemetry.rows.size());
         assertEquals(1, notifications.telemetryAlerts.size());
         assertSame(dto, notifications.telemetryAlerts.get(0).telemetry());
-        assertEquals(5.0, notifications.telemetryAlerts.get(0).result().deviation());
+        assertEquals(30.0, notifications.telemetryAlerts.get(0).result().value());
     }
 
     @Test
@@ -146,7 +145,7 @@ class ControllersTest {
     }
 
     @Test
-    void softRuleViolationStillGoesToNormCheck() {
+    void softRuleViolationIsSentToNotifications() {
         UUID id = UUID.randomUUID();
         devices.save(new DeviceEntity(id, null, "n", null, null, "m", DeviceState.ON, null));
         rules.add(id, 1, RuleOperator.LE, 28.0, false);

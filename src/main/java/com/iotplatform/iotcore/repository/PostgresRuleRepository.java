@@ -56,7 +56,8 @@ public class PostgresRuleRepository implements RuleRepository {
     @Override
     public List<RuleEntity> findByDeviceId(UUID deviceId) {
         return databaseUtils.query(
-                "SELECT r.* FROM rule r JOIN device_to_rule dr ON dr.rule_id = r.id WHERE dr.device_id = ?",
+                "SELECT r.id, r.telemetry_type, r.operator, r.value, r.is_strict "
+                        + "FROM rule r JOIN device_to_rule dr ON dr.rule_id = r.id WHERE dr.device_id = ?",
                 PostgresRuleRepository::mapRow, deviceId);
     }
 

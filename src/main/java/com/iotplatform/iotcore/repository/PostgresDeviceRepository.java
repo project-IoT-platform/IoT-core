@@ -35,6 +35,8 @@ public class PostgresDeviceRepository implements DeviceRepository {
 
     @Override
     public DeviceEntity save(DeviceEntity device) {
+        OffsetDateTime lastTrans = device.getLastDataTime() == null
+                ? null : device.getLastDataTime().atOffset(ZoneOffset.UTC);
         databaseUtils.update(
                 "INSERT INTO device (id, user_id, name, last_trans, charge_level, "
                         + "manufacturer, device_state, geolocation) "
@@ -44,7 +46,7 @@ public class PostgresDeviceRepository implements DeviceRepository {
                         + "last_trans = EXCLUDED.last_trans, charge_level = EXCLUDED.charge_level, "
                         + "manufacturer = EXCLUDED.manufacturer, device_state = EXCLUDED.device_state, "
                         + "geolocation = EXCLUDED.geolocation",
-                device.getId(), device.getUserId(), device.getName(), device.getLastDataTime(),
+                device.getId(), device.getUserId(), device.getName(), lastTrans,
                 device.getBatteryLevel(), device.getManufacturer(), device.getState(), device.getGeolocation());
 
         return device;
@@ -78,9 +80,10 @@ public class PostgresDeviceRepository implements DeviceRepository {
     }
     @Override
     public int updateLastDataTime(UUID id, Instant lastTrans) { //для обновления из телеметрии
+        OffsetDateTime time = lastTrans.atOffset(ZoneOffset.UTC);
         return databaseUtils.update(
                 "UPDATE device SET last_trans = ? WHERE id = ? AND (last_trans IS NULL OR last_trans < ?)",
-                lastTrans, id, lastTrans);
+                time, id, time);
     }
 
     // Проверка и смена флага одним UPDATE: даже если два запроса придут одновременно,
