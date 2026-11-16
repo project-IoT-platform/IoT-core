@@ -5,14 +5,18 @@ import com.iotplatform.iotcore.repository.DeviceRepository;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
-/** Репозиторий устройств в памяти: ведёт себя как Postgres-версия, но без базы. */
 public class FakeDeviceRepository implements DeviceRepository {
     public final Map<UUID, DeviceEntity> rows = new HashMap<>();
     public int saveCalls = 0;
+    public final Set<UUID> batteryNotifyDisabled = new HashSet<>();
 
     @Override
     public Optional<DeviceEntity> findById(UUID id) {
@@ -45,9 +49,6 @@ public class FakeDeviceRepository implements DeviceRepository {
         return 1;
     }
 
-    /** id устройств, у которых battery_notify_allowed = false (по умолчанию у всех true). */
-    public final java.util.Set<UUID> batteryNotifyDisabled = new java.util.HashSet<>();
-
     @Override
     public boolean disableBatteryNotification(UUID id) {
         return rows.containsKey(id) && batteryNotifyDisabled.add(id);
@@ -56,5 +57,18 @@ public class FakeDeviceRepository implements DeviceRepository {
     @Override
     public boolean enableBatteryNotification(UUID id) {
         return batteryNotifyDisabled.remove(id);
+    }
+
+    @Override
+    public List<DeviceEntity> findByUserId(UUID userId) {
+        return rows.values().stream()
+                .filter(d -> userId != null && userId.equals(d.getUserId()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Optional<DeviceEntity> findByIdAndUserId(UUID id, UUID userId) {
+        return Optional.ofNullable(rows.get(id))
+                .filter(d -> userId != null && userId.equals(d.getUserId()));
     }
 }

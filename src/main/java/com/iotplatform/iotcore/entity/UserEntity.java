@@ -15,6 +15,7 @@ public class UserEntity {
     private LocalDate dateOfBirth;
     private byte[] passwordHash;
     private UserRole role;
+    private boolean confirmed;
 
     public UserEntity() {
         this.id = null;
@@ -23,6 +24,11 @@ public class UserEntity {
 
     public UserEntity(UUID id, String username, String email, String phone,
                       LocalDate dateOfBirth, byte[] passwordHash, UserRole role) {
+        this(id, username, email, phone, dateOfBirth, passwordHash, role, false);
+    }
+
+    public UserEntity(UUID id, String username, String email, String phone,
+                      LocalDate dateOfBirth, byte[] passwordHash, UserRole role, boolean confirmed) {
         this.id = id;
         this.email = email;
         this.phone = phone;
@@ -30,6 +36,7 @@ public class UserEntity {
         this.dateOfBirth = dateOfBirth;
         this.passwordHash = passwordHash;
         this.role = role;
+        this.confirmed = confirmed;
     }
 
     public UUID getId() { return id; }
@@ -40,6 +47,7 @@ public class UserEntity {
     public LocalDate getDateOfBirth() { return dateOfBirth; }
     public byte[] getPasswordHash() { return passwordHash; }
     public UserRole getRole() { return role; }
+    public boolean isConfirmed() { return confirmed; }
 
     // Сеттера для email нет специально: почту менять нельзя
     public void setPhone(String phone) { this.phone = phone; }
@@ -47,4 +55,5 @@ public class UserEntity {
     public void setDateOfBirth(LocalDate dateOfBirth) { this.dateOfBirth = dateOfBirth; }
     public void setPasswordHash(byte[] passwordHash) { this.passwordHash = passwordHash; }
     public void setRole(UserRole role) { this.role = role; }
+    public void setConfirmed(boolean confirmed) { this.confirmed = confirmed; }
 }

@@ -23,4 +23,14 @@ public interface DeviceRepository {
 
     /** Все устройства пользователя (пустой список, если их нет). */
     List<DeviceEntity> findByUserId(UUID userId);
+
+    /** Страница устройств пользователя: LIMIT / OFFSET, порядок стабильный (по названию, затем по id). */
+    default List<DeviceEntity> findByUserId(UUID userId, int limit, int offset) {
+        return findByUserId(userId).stream().skip(offset).limit(limit).toList();
+    }
+
+    /** Устройство по id, только если оно принадлежит пользователю. */
+    default Optional<DeviceEntity> findByIdAndUserId(UUID id, UUID userId) {
+        return findById(id).filter(d -> userId != null && userId.equals(d.getUserId()));
+    }
 }

@@ -27,6 +27,14 @@ public class DeviceController {
         return service.findByUserId(userId);
     }
 
+    /** Есть search: ищем это устройство среди устройств пользователя (0 или 1 элемент). Иначе страница списка. */
+    public List<DeviceDto> getByUserId(UUID userId, UUID search, int limit, int offset) {
+        if (search != null) {
+            return service.findByIdAndUserId(search, userId).map(List::of).orElseGet(List::of);
+        }
+        return service.findByUserId(userId, limit, offset);
+    }
+
     public void register(DeviceDto dto) {
         service.register(dto);                          // проверка на валидность + сохранение; ошибка -> дальше не идём
         notifications.notifyDeviceRegistered(dto);      // письмо о регистрации устройства

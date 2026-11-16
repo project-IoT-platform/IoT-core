@@ -18,6 +18,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -30,6 +31,12 @@ public class NotificationService {
     private static final System.Logger LOG = System.getLogger(NotificationService.class.getName());
 
     public record Settings(Double norm, Double deviation) {}
+
+    /** Граница нормы одного типа телеметрии. null = не задана / не менять. */
+    public record TelemetryLimitDto(Short telemetryType, Double lowerBound, Double upperBound) {}
+
+    /** Лимиты устройства: нижняя граница заряда и границы телеметрии. */
+    public record DeviceLimits(Integer batteryLowerBound, List<TelemetryLimitDto> telemetry) {}
 
     private final String baseUrl;   // например http://localhost:8081
     private final HttpClient http = HttpClient.newBuilder()
@@ -88,13 +95,38 @@ public class NotificationService {
         if (r.statusCode() == 404) throw new DeviceNotFoundException(deviceId);
         if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
         Map<String, String> answer = parse(r.body(), new TypeReference<Map<String, String>>() {});
-        // ИСПРАВЛЕНО: без поля state или с неизвестным значением раньше был NPE/IllegalArgumentException -> 500
         if (answer == null || answer.get("state") == null) throw unavailable("не прислал state");
         try {
             return DeviceState.valueOf(answer.get("state"));
         } catch (IllegalArgumentException e) {
             throw unavailable("прислал неизвестный state: " + answer.get("state"));
         }
+    }
+
+    /** Текущие лимиты устройства (GET /devices/{id}/limits в сервисе уведомлений). */
+    public DeviceLimits getDeviceLimits(UUID deviceId) {
+        HttpResponse<String> r = call(request("/devices/" + deviceId + "/limits").GET().build());
+        if (r.statusCode() == 404) throw new DeviceNotFoundException(deviceId);
+        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
+        return parse(r.body(), new TypeReference<DeviceLimits>() {});
+    }
+
+    /** Сохраняет лимиты устройства (PUT /devices/{id}/limits) и возвращает актуальные значения. */
+    public DeviceLimits updateDeviceLimits(UUID deviceId, DeviceLimits limits) {
+        String json;
+        try {
+            json = Json.MAPPER.writeValueAsString(limits);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("не удалось собрать JSON", e);
+        }
+        HttpResponse<String> r = call(request("/devices/" + deviceId + "/limits")
+                .PUT(HttpRequest.BodyPublishers.ofString(json)).build());
+        if (r.statusCode() == 404) throw new DeviceNotFoundException(deviceId);
+        if (r.statusCode() == 400) {
+            throw new ValidationException(parse(r.body(), new TypeReference<Map<String, String>>() {}));
+        }
+        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
+        return parse(r.body(), new TypeReference<DeviceLimits>() {});
     }
 
     public Settings getDefaults() {

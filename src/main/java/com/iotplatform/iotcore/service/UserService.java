@@ -8,44 +8,18 @@ import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.model.UserRole;
 import com.iotplatform.iotcore.repository.UserRepository;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public class UserService {
     private static final System.Logger LOG = System.getLogger(UserService.class.getName());
 
-    // сколько живёт неподтверждённая регистрация
-    private static final Duration PENDING_TTL = Duration.ofMinutes(30);
-
     private final UserRepository users;
-
-    // ИЗМЕНЕНО: пользователь уже в БД (чтобы Notification-service нашёл email),
-    // а здесь хранится только метка «не подтверждён» и срок её жизни
-    private final Map<UUID, Instant> pending = new ConcurrentHashMap<>();
 
     public UserService(UserRepository users) {
         this.users = users;
-        // раз в минуту удаляем из БД регистрации, которые не подтвердили вовремя
-        ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "pending-users-cleaner");
-            t.setDaemon(true);
-            return t;
-        });
-        cleaner.scheduleWithFixedDelay(() -> {
-            try {
-                purgeExpired();
-            } catch (Exception e) {
-                LOG.log(System.Logger.Level.ERROR, "Не удалось очистить неподтверждённые регистрации", e);
-            }
-        }, 1, 1, TimeUnit.MINUTES);
     }
 
     static String normalizeEmail(String email) {
@@ -58,18 +32,6 @@ public class UserService {
         int at = email.indexOf('@');
         String name = (at > 0 ? email.substring(0, at) : email).trim();
         return name.isEmpty() ? "user" : name;
-    }
-
-    // удаляет из БД и из памяти регистрации, у которых вышел срок подтверждения
-    private synchronized void purgeExpired() {
-        Instant now = Instant.now();
-        for (Map.Entry<UUID, Instant> e : pending.entrySet()) {
-            if (e.getValue().isBefore(now)) {
-                pending.remove(e.getKey());
-                users.deleteById(e.getKey());
-                LOG.log(System.Logger.Level.INFO, "Регистрация " + e.getKey() + " не подтверждена вовремя, удалена");
-            }
-        }
     }
 
     public UserResponse findById(UUID id) {
@@ -86,61 +48,67 @@ public class UserService {
         return users.findPasswordHashByEmail(normalizeEmail(email));
     }
 
-    // вход по почте и паролю. Пусто = неверная почта или пароль (причину не раскрываем).
-    // ИЗМЕНЕНО: неподтверждённого пользователя не пускаем, хотя он уже есть в БД
+    // Пусто = неверная почта или пароль. Неподтверждённый аккаунт -> 400 (ValidationException).
+    // Подтверждение проверяем только после пароля, чтобы не раскрывать, есть ли такая почта.
     public Optional<UserResponse> login(String email, String password) {
         if (email == null || password == null) return Optional.empty();
-        purgeExpired();
         Optional<UserEntity> found = users.findByEmail(normalizeEmail(email));
         if (found.isEmpty()) {
-            PasswordHasher.hash(password); // тратим столько же времени, чтобы по скорости ответа нельзя было угадать почту
+            PasswordHasher.hash(password); // та же задержка, чтобы по времени ответа нельзя было угадать почту
             return Optional.empty();
         }
         UserEntity user = found.get();
-        boolean passwordOk = PasswordHasher.verify(password, user.getPasswordHash());
-        if (!passwordOk || pending.containsKey(user.getId())) {
+        if (!PasswordHasher.verify(password, user.getPasswordHash())) {
             return Optional.empty();
+        }
+        if (!user.isConfirmed()) {
+            throw new ValidationException(Map.of("error",
+                    "Аккаунт не подтверждён. Нажмите «Зарегистрироваться», чтобы получить письмо с ID заново"));
         }
         LOG.log(System.Logger.Level.INFO, "Пользователь " + user.getId() + " вошёл");
         return Optional.of(toResponse(user));
     }
 
-    // ИЗМЕНЕНО: сохраняем в БД сразу, но помечаем как неподтверждённого
+    // Новый пользователь создаётся с is_confirmed = false.
+    // Почта подтверждённого аккаунта занята; почта брошенной регистрации перезаписывается.
     public synchronized UserResponse create(UserDto dto) {
         dto.validate(true);
         String email = normalizeEmail(dto.getEmail());
-        purgeExpired();
+        UserRole role = dto.getRole() != null ? dto.getRole() : UserRole.GUEST;
+        String username = dto.getUsername() != null ? dto.getUsername() : defaultUsername(email);
+        byte[] hash = PasswordHasher.hash(dto.getPassword());
 
         Optional<UserEntity> existing = users.findByEmail(email);
         if (existing.isPresent()) {
-            UUID oldId = existing.get().getId();
-            if (pending.containsKey(oldId)) {
-                // прошлая попытка так и не была подтверждена: заменяем её новой
-                pending.remove(oldId);
-                users.deleteById(oldId);
-                LOG.log(System.Logger.Level.INFO, "Старая неподтверждённая регистрация " + oldId + " заменена");
-            } else {
+            UserEntity user = existing.get();
+            if (user.isConfirmed()) {
                 throw new ValidationException(Map.of("email", "пользователь с такой почтой уже существует"));
             }
+            user.setUsername(username);
+            user.setPhone(dto.getPhone());
+            user.setDateOfBirth(dto.getDateOfBirth());
+            user.setPasswordHash(hash);
+            user.setRole(role);
+            user.setConfirmed(false);
+            UserResponse updated = toResponse(users.save(user));
+            LOG.log(System.Logger.Level.INFO, "Брошенная регистрация " + updated.id() + " (" + email + ") перезаписана");
+            return updated;
         }
 
-        UserRole role = dto.getRole() != null ? dto.getRole() : UserRole.GUEST;
-        String username = dto.getUsername() != null ? dto.getUsername() : defaultUsername(email);
-
         UserEntity entity = new UserEntity(UUID.randomUUID(), username, email,
-                dto.getPhone(), dto.getDateOfBirth(), PasswordHasher.hash(dto.getPassword()), role);
+                dto.getPhone(), dto.getDateOfBirth(), hash, role, false);
         UserResponse created = toResponse(users.save(entity));
-        pending.put(created.id(), Instant.now().plus(PENDING_TTL));
         LOG.log(System.Logger.Level.INFO, "Пользователь " + created.id() + " (" + email + ") создан, ждёт подтверждения");
         return created;
     }
 
-    // ИЗМЕНЕНО: подтверждение только снимает метку «не подтверждён»
+    // Подтверждение регистрации: is_confirmed = true. Нет такого пользователя -> 404.
     public synchronized UserResponse confirm(UUID id) {
-        purgeExpired();
         UserEntity user = users.findById(id)
-                .orElseThrow(() -> new UserNotFoundException(id)); // нет в БД или срок истёк -> 404
-        if (pending.remove(id) != null) {
+                .orElseThrow(() -> new UserNotFoundException(id));
+        if (!user.isConfirmed()) {
+            user.setConfirmed(true);
+            users.save(user);
             LOG.log(System.Logger.Level.INFO, "Пользователь " + id + " подтверждён");
         }
         return toResponse(user);
@@ -166,9 +134,7 @@ public class UserService {
         return updated;
     }
 
-    // ИЗМЕНЕНО: заодно снимаем метку (отмена на экране 2 тоже идёт через DELETE)
-    public synchronized void delete(UUID id) {
-        pending.remove(id);
+    public void delete(UUID id) {
         if (!users.deleteById(id)) {
             throw new UserNotFoundException(id);
         }
@@ -177,6 +143,6 @@ public class UserService {
 
     private UserResponse toResponse(UserEntity e) {
         return new UserResponse(e.getId(), e.getUsername(), e.getEmail(),
-                e.getPhone(), e.getDateOfBirth(), e.getRole());
+                e.getPhone(), e.getDateOfBirth(), e.getRole(), e.isConfirmed());
     }
 }

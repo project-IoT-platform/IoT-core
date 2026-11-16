@@ -34,14 +34,14 @@ public class PostgresUserRepository implements UserRepository {
     @Override
     public UserEntity save(UserEntity user) throws DatabaseException {
         databaseUtils.update(
-                "INSERT INTO users (id, username, email, phone, birthdate, password_hash, user_role) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?::role) "
-                        // ИСПРАВЛЕНО: UserService.update сохраняет уже существующего пользователя,
-                        // обычный INSERT падал с duplicate key -> HTTP 500. Почту не трогаем: менять её нельзя.
+                "INSERT INTO users (id, username, email, phone, birthdate, password_hash, user_role, is_confirmed) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?::role, ?) "
+                        // почту не трогаем: менять её нельзя
                         + "ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, phone = EXCLUDED.phone, "
                         + "birthdate = EXCLUDED.birthdate, password_hash = EXCLUDED.password_hash, "
-                        + "user_role = EXCLUDED.user_role",
-                user.getId(), user.getUsername(), user.getEmail(), user.getPhone(), user.getDateOfBirth(), user.getPasswordHash(), user.getRole());
+                        + "user_role = EXCLUDED.user_role, is_confirmed = EXCLUDED.is_confirmed",
+                user.getId(), user.getUsername(), user.getEmail(), user.getPhone(), user.getDateOfBirth(),
+                user.getPasswordHash(), user.getRole(), user.isConfirmed());
 
         return user;
     }
@@ -63,7 +63,6 @@ public class PostgresUserRepository implements UserRepository {
                 rs -> 1, email).isEmpty();
     }
 
-    // ДОБАВЛЕНО
     @Override
     public Optional<UserEntity> findByEmail(String email) {
         return databaseUtils.query("SELECT * FROM users WHERE email = ?",
@@ -79,7 +78,8 @@ public class PostgresUserRepository implements UserRepository {
                     rs.getString("phone"),
                     rs.getObject("birthdate", LocalDate.class),
                     rs.getBytes("password_hash"),
-                    UserRole.valueOf(rs.getString("user_role").toUpperCase(Locale.ROOT)));
+                    UserRole.valueOf(rs.getString("user_role").toUpperCase(Locale.ROOT)),
+                    rs.getBoolean("is_confirmed"));
         } catch (SQLException e) {
             throw new DatabaseException("Ошибка преобразования в класс Java", e);
         }

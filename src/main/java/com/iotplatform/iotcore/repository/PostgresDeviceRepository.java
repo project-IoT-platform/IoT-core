@@ -36,14 +36,14 @@ public class PostgresDeviceRepository implements DeviceRepository {
 
     @Override
     public DeviceEntity save(DeviceEntity device) {
-        // ИСПРАВЛЕНО 1: драйвер PostgreSQL не принимает java.time.Instant, переводим в OffsetDateTime
+        // драйвер PostgreSQL не принимает java.time.Instant, переводим в OffsetDateTime
         OffsetDateTime lastTrans = device.getLastDataTime() == null
                 ? null : device.getLastDataTime().atOffset(ZoneOffset.UTC);
         databaseUtils.update(
                 "INSERT INTO device (id, user_id, name, last_trans, charge_level, "
                         + "manufacturer, device_state, geolocation) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?::state, ?) "
-                        // ИСПРАВЛЕНО 2: по описанию интерфейса save «создаёт, а если id уже есть, обновляет»
+                        // save «создаёт, а если id уже есть, обновляет»
                         + "ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, name = EXCLUDED.name, "
                         + "last_trans = EXCLUDED.last_trans, charge_level = EXCLUDED.charge_level, "
                         + "manufacturer = EXCLUDED.manufacturer, device_state = EXCLUDED.device_state, "
@@ -61,7 +61,7 @@ public class PostgresDeviceRepository implements DeviceRepository {
 
     private static DeviceEntity mapRow(ResultSet rs) throws DatabaseException {
         try {
-            // ИСПРАВЛЕНО 3: last_trans и charge_level могут быть NULL (новое устройство), раньше был NullPointerException
+            // last_trans и charge_level могут быть NULL (новое устройство)
             OffsetDateTime lastTrans = rs.getObject("last_trans", OffsetDateTime.class);
             short charge = rs.getShort("charge_level");
             Integer battery = rs.wasNull() ? null : Integer.valueOf(charge);
@@ -81,9 +81,7 @@ public class PostgresDeviceRepository implements DeviceRepository {
 
     @Override
     public int updateLastDataTime(UUID id, Instant lastTrans) { // для обновления из телеметрии
-        // тоже Instant -> OffsetDateTime
-        // ИСПРАВЛЕНО: меняем одно поле (раньше телеметрия перезаписывала всё устройство и могла затереть
-        // параллельный PUT) и не откатываем время назад, если пришла запоздавшая старая запись
+        // меняем одно поле и не откатываем время назад, если пришла запоздавшая старая запись
         OffsetDateTime time = lastTrans.atOffset(ZoneOffset.UTC);
         return databaseUtils.update(
                 "UPDATE device SET last_trans = ? WHERE id = ? AND (last_trans IS NULL OR last_trans < ?)",
@@ -106,9 +104,20 @@ public class PostgresDeviceRepository implements DeviceRepository {
 
     @Override
     public List<DeviceEntity> findByUserId(UUID userId) {
-        // TODO: заменить заглушку на реальный запрос
-        // return databaseUtils.query("SELECT * FROM device WHERE user_id = ? ORDER BY name",
-        //         PostgresDeviceRepository::mapRow, userId);
-        return List.of();
+        return databaseUtils.query("SELECT * FROM device WHERE user_id = ? ORDER BY name, id",
+                PostgresDeviceRepository::mapRow, userId);
+    }
+
+    @Override
+    public List<DeviceEntity> findByUserId(UUID userId, int limit, int offset) {
+        return databaseUtils.query(
+                "SELECT * FROM device WHERE user_id = ? ORDER BY name, id LIMIT ? OFFSET ?",
+                PostgresDeviceRepository::mapRow, userId, limit, offset);
+    }
+
+    @Override
+    public Optional<DeviceEntity> findByIdAndUserId(UUID id, UUID userId) {
+        return databaseUtils.query("SELECT * FROM device WHERE id = ? AND user_id = ?",
+                PostgresDeviceRepository::mapRow, id, userId).stream().findFirst();
     }
 }

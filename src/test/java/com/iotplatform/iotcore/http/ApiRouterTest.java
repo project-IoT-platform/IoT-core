@@ -3,6 +3,7 @@ package com.iotplatform.iotcore.http;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.iotplatform.iotcore.controller.DeviceController;
 import com.iotplatform.iotcore.controller.NotificationController;
+import com.iotplatform.iotcore.controller.RuleController;
 import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
 import com.iotplatform.iotcore.check.StubBatteryChecker;
@@ -20,10 +21,15 @@ import com.iotplatform.iotcore.model.RuleOperator;
 import com.iotplatform.iotcore.service.AlertService;
 import com.iotplatform.iotcore.service.DeviceService;
 import com.iotplatform.iotcore.service.RuleEngine;
+import com.iotplatform.iotcore.service.RuleService;
 import com.iotplatform.iotcore.service.TelemetryService;
 import com.iotplatform.iotcore.service.UserService;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -32,6 +38,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /** Маршрутизация и коды ответов: от «сырых» method/uri/body до статуса и JSON. */
 class ApiRouterTest {
@@ -41,6 +48,21 @@ class ApiRouterTest {
     private FakeRuleRepository rules;
     private RecordingNotificationService notifications;
     private ApiRouter router;
+
+    private static MockedStatic<System> mockedSystem;
+
+    @BeforeAll
+    static void beforeAll() {
+        // Подменяем System.getenv, чтобы PasswordHasher видел PASSWORD_PEPPER при тестах
+        mockedSystem = mockStatic(System.class, Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS));
+        mockedSystem.when(() -> System.getenv("PASSWORD_PEPPER"))
+                .thenReturn("dGVzdF9wZXBwZXJfc2VjcmV0X2tleV8zMl9ieXRlcyEhIQ=="); // Base64 от 32 байт
+    }
+
+    @AfterAll
+    static void afterAll() {
+        mockedSystem.close();
+    }
 
     @BeforeEach
     void setUp() {
@@ -55,11 +77,17 @@ class ApiRouterTest {
     private ApiRouter routerWith(FakeDeviceRepository deviceRepo) {
         AlertService alerts = new AlertService(new StubTelemetryNormChecker(), new StubBatteryChecker(),
                 deviceRepo, notifications);
+
+        // Создаем RuleService, который нужен для пятого контроллера
+        RuleService ruleService = new RuleService(rules, deviceRepo);
+
         return new ApiRouter(
                 new DeviceController(new DeviceService(deviceRepo, users), notifications, alerts),
                 new UserController(new UserService(users), notifications),
                 new TelemetryController(new TelemetryService(deviceRepo, telemetry, new RuleEngine(rules)), alerts),
-                new NotificationController(notifications));
+                new NotificationController(notifications),
+                new RuleController(ruleService) // 5-й аргумент, которого не хватало
+        );
     }
 
     private ApiRouter.Response call(String method, String uri, String body) {

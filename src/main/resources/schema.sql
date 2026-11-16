@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS users (
                                      user_role role NOT NULL
 );
 
+-- подтверждена ли регистрация (ID из письма введён)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_confirmed BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS device (
                                       id UUID PRIMARY KEY,
                                       user_id UUID,
@@ -33,10 +36,10 @@ CREATE TABLE IF NOT EXISTS device (
                                       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     );
 
--- НОВОЕ: можно ли отправить уведомление о низком заряде.
--- TRUE: уведомление ещё не отправляли (или устройство зарядили выше нижней границы).
--- FALSE: уже отправили, повторно не шлём, пока заряд не поднимется выше нижней границы.
 ALTER TABLE device ADD COLUMN IF NOT EXISTS battery_notify_allowed BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- лимиты устройства: нижняя граница заряда и общие значения нормы
+CREATE TABLE IF NOT EXISTS rute (device_id UUID PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE, battery_limit INTEGER, norm DOUBLE PRECISION, deviation DOUBLE PRECISION);
 
 CREATE TABLE IF NOT EXISTS telemetry (
                                          id UUID PRIMARY KEY,
@@ -68,9 +71,11 @@ CREATE TABLE IF NOT EXISTS rule (
                                     value FLOAT NOT NULL
 );
 
--- НОВОЕ: строгое правило (TRUE) отклоняет показание с HTTP 400, в БД оно не пишется.
--- Нестрогое (FALSE): показание сохраняется (HTTP 202) и проверяется для уведомления.
-ALTER TABLE rule ADD COLUMN IF NOT EXISTS is_strict BOOLEAN NOT NULL DEFAULT FALSE;
+-- is_strict = TRUE по умолчанию: правило отклоняет показание с HTTP 400 и в БД не пишется.
+-- is_strict = FALSE: показание сохраняется (HTTP 202) и проверяется для уведомления.
+ALTER TABLE rule ADD COLUMN IF NOT EXISTS is_strict BOOLEAN NOT NULL DEFAULT TRUE;
+-- На случай, если колонка уже была создана со старым DEFAULT FALSE:
+ALTER TABLE rule ALTER COLUMN is_strict SET DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS device_to_rule (
                                               id UUID PRIMARY KEY,

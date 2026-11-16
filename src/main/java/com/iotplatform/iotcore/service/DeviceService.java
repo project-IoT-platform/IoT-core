@@ -10,6 +10,7 @@ import com.iotplatform.iotcore.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class DeviceService {
@@ -30,6 +31,14 @@ public class DeviceService {
 
     public List<DeviceDto> findByUserId(UUID userId) {
         return devices.findByUserId(userId).stream().map(this::toDto).toList();
+    }
+
+    public List<DeviceDto> findByUserId(UUID userId, int limit, int offset) {
+        return devices.findByUserId(userId, limit, offset).stream().map(this::toDto).toList();
+    }
+
+    public Optional<DeviceDto> findByIdAndUserId(UUID id, UUID userId) {
+        return devices.findByIdAndUserId(id, userId).map(this::toDto);
     }
 
     public void register(DeviceDto dto) {

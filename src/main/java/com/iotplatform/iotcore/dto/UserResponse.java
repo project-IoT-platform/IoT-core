@@ -11,5 +11,11 @@ public record UserResponse(
         String email,
         String phone,
         LocalDate dateOfBirth,
-        UserRole role) {
+        UserRole role,
+        boolean isConfirmed) {
+
+    public UserResponse(UUID id, String username, String email, String phone,
+                        LocalDate dateOfBirth, UserRole role) {
+        this(id, username, email, phone, dateOfBirth, role, false);
+    }
 }

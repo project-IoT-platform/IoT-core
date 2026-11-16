@@ -2,10 +2,10 @@ package com.iotplatform.iotcore.model;
 
 /**
  * Оператор правила, как в типе rule_operator в БД. Правило выполняется, если «значение ОПЕРАТОР граница».
- * getSymbol() использует RuleEngine в тексте ошибки: «должно быть ≤ 30.0».
+ * getSymbol() использует RuleEngine в тексте ошибки: «должно быть <= 30.0».
  */
 public enum RuleOperator {
-    GE("≥"), LE("≤"), GT(">"), LT("<"), EQ("="), NE("≠");
+    GE(">="), LE("<="), GT(">"), LT("<"), EQ("=="), NE("!=");
 
     private final String symbol;
 

@@ -2,6 +2,7 @@ package com.iotplatform.iotcore.http;
 
 import com.iotplatform.iotcore.controller.DeviceController;
 import com.iotplatform.iotcore.controller.NotificationController;
+import com.iotplatform.iotcore.controller.RuleController;
 import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
 import io.netty.bootstrap.ServerBootstrap;
@@ -38,13 +39,13 @@ public class HttpApi {
                    DeviceController deviceController,
                    UserController userController,
                    TelemetryController telemetryController,
-                   NotificationController notificationController) {
+                   NotificationController notificationController,
+                   RuleController ruleController) {
         this.port = port;
         this.router = new ApiRouter(deviceController, userController,
-                telemetryController, notificationController);
+                telemetryController, notificationController, ruleController);
     }
 
-    /** Разрешённые origin фронта: переменная CORS_ORIGINS (через запятую) или localhost:3000. */
     private static CorsConfig corsConfig() {
         String[] origins = Arrays.stream(
                         System.getenv().getOrDefault("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(","))

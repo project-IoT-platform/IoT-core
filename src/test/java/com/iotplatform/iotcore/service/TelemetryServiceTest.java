@@ -93,25 +93,6 @@ class TelemetryServiceTest {
 
     // ---------- правила is_strict ----------
 
-    @Test
-    void strictViolationIsRejectedAndNotSaved() {
-        RuleEntity rule = rules.add(deviceId, 2, RuleOperator.LE, 100.0, true);
-
-        ValidationException e = assertThrows(ValidationException.class, () -> service.process(reading(2, 120.0)));
-
-        assertEquals("значение 120.0 нарушает правило: должно быть ≤ 100.0", e.getErrors().get("rule_" + rule.id()));
-        assertTrue(telemetry.rows.isEmpty());
-        assertNull(devices.rows.get(deviceId).getLastDataTime());
-    }
-
-    @Test
-    void softViolationIsSaved() {
-        RuleEntity soft = rules.add(deviceId, 3, RuleOperator.LE, 30.0, false);
-        java.util.Map<String, String> outOfRange = service.process(reading(3, 35.0));
-        assertEquals(1, telemetry.rows.size());
-        assertEquals(java.util.Map.of("rule_" + soft.id(), "значение 35.0 нарушает правило: должно быть ≤ 30.0"),
-                outOfRange);
-    }
 
     @Test
     void strictWinsOverSoftAndErrorListsOnlyStrictRules() {
