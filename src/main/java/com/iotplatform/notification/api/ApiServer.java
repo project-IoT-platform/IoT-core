@@ -8,6 +8,7 @@ import com.iotplatform.notification.exception.ValidationException;
 import com.iotplatform.notification.model.Device;
 import com.iotplatform.notification.model.Reading;
 import com.iotplatform.notification.model.Settings;
+import com.iotplatform.notification.model.TelemetryLimit;
 import com.iotplatform.notification.service.NotificationService;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -17,6 +18,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -30,6 +34,10 @@ import java.util.concurrent.Executors;
  *   POST /events/telemetry-alert     тело: {deviceId, time, telemetryType, value, deviation,
  *                                           lowerBound, upperBound}                            -> 202
  *   POST /devices/{id}/status        -> 200 {"deviceId":..,"state":"ON"} или 404
+ *   GET  /devices/{id}/limits        -> 200 {"batteryLimit":..,"telemetryLimits":[{telemetryType,lowerBound,upperBound}]}
+ *                                       (те же данные дублируются в batteryLowerBound и telemetry)
+ *   PUT  /devices/{id}/limits        тело {batteryLimit, telemetryLimits} (или batteryLowerBound, telemetry);
+ *                                       null/нет поля = не менять -> 200, 400 или 404
  *   GET  /settings                   -> 200 {"norm":..,"deviation":..}
  *   PUT  /settings                   тело {"norm":..,"deviation":..} -> 200 или 400
  */
@@ -119,6 +127,14 @@ public class ApiServer {
             UUID id = UUID.fromString(path.split("/")[2]);
             boolean on = service.sendStatus(id);
             send(ex, 200, Map.of("deviceId", id.toString(), "state", on ? "ON" : "OFF"));
+        } else if (method.equals("GET") && path.matches("/devices/[^/]+/limits")) {
+            UUID id = UUID.fromString(path.split("/")[2]);
+            send(ex, 200, limitsJson(service.getDeviceLimits(id)));
+        } else if (method.equals("PUT") && path.matches("/devices/[^/]+/limits")) {
+            UUID id = UUID.fromString(path.split("/")[2]);
+            JsonNode n = MAPPER.readTree(raw);
+            Integer battery = n.hasNonNull("batteryLimit") ? integer(n, "batteryLimit") : integer(n, "batteryLowerBound");
+            send(ex, 200, limitsJson(service.updateDeviceLimits(id, battery, telemetryLimits(n))));
         } else if (method.equals("GET") && path.equals("/settings")) {
             send(ex, 200, settingsJson(service.getDefaults()));
         } else if (method.equals("PUT") && path.equals("/settings")) {
@@ -153,6 +169,32 @@ public class ApiServer {
     private static Settings settings(byte[] raw) throws IOException {
         JsonNode n = MAPPER.readTree(raw);
         return new Settings(number(n, "norm"), number(n, "deviation"));
+    }
+
+    /** Список границ телеметрии из поля "telemetryLimits" (или "telemetry"): [{telemetryType, lowerBound, upperBound}]. */
+    private static List<TelemetryLimit> telemetryLimits(JsonNode n) {
+        List<TelemetryLimit> out = new ArrayList<>();
+        JsonNode arr = n.hasNonNull("telemetryLimits") ? n.get("telemetryLimits") : n.get("telemetry");
+        if (arr == null || arr.isNull()) return out;
+        if (!arr.isArray()) throw new ValidationException(Map.of("telemetryLimits", "должен быть массивом"));
+        for (JsonNode item : arr) {
+            Double type = number(item, "telemetryType");
+            if (type == null || type != Math.rint(type) || type < Short.MIN_VALUE || type > Short.MAX_VALUE) {
+                throw new ValidationException(Map.of("telemetryType", "обязательное целое число"));
+            }
+            out.add(new TelemetryLimit(type.shortValue(), number(item, "lowerBound"), number(item, "upperBound")));
+        }
+        return out;
+    }
+
+    /** Ответ с лимитами: новые имена полей и старые (их читает прокси в IoT Core). */
+    private static Map<String, Object> limitsJson(NotificationService.LimitsView v) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("batteryLimit", v.batteryLimit());
+        m.put("telemetryLimits", v.telemetryLimits());
+        m.put("batteryLowerBound", v.batteryLimit());
+        m.put("telemetry", v.telemetryLimits());
+        return m;
     }
 
     private static Map<String, Double> settingsJson(Settings s) {

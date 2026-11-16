@@ -24,15 +24,18 @@ public final class Notifications {
                         + "ID: " + d.id());
     }
 
-    /** Письмо новому пользователю с его id (id нужен, чтобы привязать Telegram-бота). */
+    /** ИЗМЕНЕНО: письмо новому пользователю с ID для подтверждения регистрации. */
     public static Notification userRegistered(UUID userId, String username, Instant now) {
         Map<String, String> details = new LinkedHashMap<>();
         details.put("ID пользователя", String.valueOf(userId));
         if (username != null && !username.isBlank()) details.put("Имя", username);
         return new Notification(NotificationType.USER_REGISTERED, userId, null, null, now,
-                "Ваш аккаунт создан. Чтобы получать уведомления в Telegram, отправьте боту ваш ID пользователя.",
+                "Ваш ID для подтверждения регистрации: " + userId
+                        + ". Введите его в приложении, чтобы завершить создание аккаунта.",
                 details,
-                "👤 Вы зарегистрированы на платформе\nВаш ID пользователя: " + userId);
+                "👤 ID для подтверждения регистрации\n"
+                        + "Ваш ID для подтверждения регистрации: " + userId + "\n"
+                        + "Введите его в приложении, чтобы завершить создание аккаунта.");
     }
 
     /** Заряд ниже нижней границы: level, на сколько ниже (belowBy) и сама граница. */

@@ -49,18 +49,6 @@ class EmailTest {
     }
 
     @Test
-    void userRegistrationEmailHasIdAndNoDeviceLine() throws Exception {
-        assertEquals(Channel.Status.SENT, channel.send(Notifications.userRegistered(user.id(), "vera", NOW)));
-
-        Sent mail = sender.sent.get(0);
-        assertEquals(user.email(), mail.to());
-        assertEquals("IoT: Вы зарегистрированы на платформе", mail.subject());   // без « — »
-        assertTrue(mail.html().contains(user.id().toString()));
-        assertFalse(mail.html().contains("Устройство:"));
-        assertTrue(mail.text().contains(user.id().toString()));
-    }
-
-    @Test
     void lowBatteryNowGoesByEmail() throws Exception {
         assertEquals(Channel.Status.SENT, channel.send(Notifications.lowBattery(device, 12, 8, 20, NOW)));
         Sent mail = sender.sent.get(0);

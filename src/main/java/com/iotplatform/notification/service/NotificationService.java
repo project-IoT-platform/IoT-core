@@ -4,6 +4,7 @@ import com.iotplatform.notification.channel.Dispatcher;
 import com.iotplatform.notification.data.DeviceLimits;
 import com.iotplatform.notification.data.NormRules;
 import com.iotplatform.notification.data.PlatformData;
+import com.iotplatform.notification.data.PostgresDeviceLimits;
 import com.iotplatform.notification.data.RuleStore;
 import com.iotplatform.notification.data.SettingsStore;
 import com.iotplatform.notification.exception.NotFoundException;
@@ -29,12 +30,15 @@ import java.util.OptionalDouble;
 import java.util.UUID;
 
 /**
- * Главная логика сервиса уведомлений. ИЗМЕНЕНО: проверки на норму теперь делает IoT Core,
+ * Главная логика сервиса уведомлений. Проверки на норму делает IoT Core,
  * сюда приходят готовые результаты (battery-low, telemetry-alert), и сервис только формирует и рассылает
  * уведомления. Ответы для бота: /status, /avg, /settings, /norm, /battery.
  */
 public class NotificationService {
     private static final System.Logger LOG = System.getLogger(NotificationService.class.getName());
+
+    /** Лимиты устройства для фронтенда: нижняя граница заряда и границы телеметрии. */
+    public record LimitsView(Integer batteryLimit, List<TelemetryLimit> telemetryLimits) {}
 
     private final PlatformData platform;
     private final SettingsStore settings;
@@ -110,6 +114,50 @@ public class NotificationService {
         return d.on();
     }
 
+    // ---- лимиты устройства для фронтенда (GET/PUT /devices/{id}/limits) ----
+
+    /** Текущие лимиты: заряд из rute, границы телеметрии из rule. */
+    public LimitsView getDeviceLimits(UUID deviceId) {
+        platform.findDevice(deviceId).orElseThrow(() -> new NotFoundException(deviceId));
+        Integer battery = limits.batteryLowerBound(deviceId).orElse(null);
+        return new LimitsView(battery, limits.telemetryLimits(deviceId));
+    }
+
+    /**
+     * Сохраняет лимиты: заряд в rute, телеметрию в rule (нижняя граница как GE, верхняя как LE).
+     * null (граница не прислана) означает «не менять».
+     */
+    public synchronized LimitsView updateDeviceLimits(UUID deviceId, Integer battery, List<TelemetryLimit> telemetry) {
+        platform.findDevice(deviceId).orElseThrow(() -> new NotFoundException(deviceId));
+
+        Map<String, String> errors = new LinkedHashMap<>();
+        if (battery != null && (battery < 0 || battery > 100)) {
+            errors.put("batteryLimit", "должно быть от 0 до 100");
+        }
+        for (TelemetryLimit l : telemetry) {
+            String key = "telemetry " + l.telemetryType();
+            if ((l.lowerBound() != null && !Double.isFinite(l.lowerBound()))
+                    || (l.upperBound() != null && !Double.isFinite(l.upperBound()))) {
+                errors.put(key, "границы должны быть числами");
+            } else if (l.lowerBound() != null && l.upperBound() != null && l.lowerBound() > l.upperBound()) {
+                errors.put(key, "нижняя граница больше верхней");
+            }
+        }
+        if (!errors.isEmpty()) throw new ValidationException(errors);
+
+        if (!(limits instanceof PostgresDeviceLimits store)) {
+            throw new IllegalStateException("DeviceLimits не поддерживает запись: подключите PostgresDeviceLimits в Main");
+        }
+        if (battery != null) {
+            store.saveBatteryLowerBound(deviceId, battery);
+        }
+        for (TelemetryLimit l : telemetry) {
+            if (l.lowerBound() != null) store.saveTelemetryBound(deviceId, l.telemetryType(), true, l.lowerBound());
+            if (l.upperBound() != null) store.saveTelemetryBound(deviceId, l.telemetryType(), false, l.upperBound());
+        }
+        return getDeviceLimits(deviceId);
+    }
+
     // ---- /settings и /norm ----
 
     /** Нижняя граница батарейки, затем «тип телеметрии: нижняя граница: верхняя граница» по каждому типу. */
@@ -144,7 +192,7 @@ public class NotificationService {
                 + Notifications.format(value);
     }
 
-    // ---- старые правила (таблица rute): нужны команде /battery, которую оставили как есть ----
+    // ---- правила устройства из таблицы rute: нужны команде /battery ----
 
     /** Действующие правила устройства: свои из rute, а чего там нет, берётся из общих значений. */
     public Rule rulesFor(UUID deviceId) {

@@ -12,7 +12,7 @@ import com.iotplatform.notification.data.PostgresNormRules;
 import com.iotplatform.notification.data.PostgresPlatformData;
 import com.iotplatform.notification.data.PostgresRuleStore;
 import com.iotplatform.notification.data.PostgresSettingsStore;
-import com.iotplatform.notification.data.StubDeviceLimits;
+import com.iotplatform.notification.data.PostgresDeviceLimits;
 import com.iotplatform.notification.db.Db;
 import com.iotplatform.notification.email.EmailRenderer;
 import com.iotplatform.notification.email.SmtpEmailSender;
@@ -27,6 +27,8 @@ import java.util.concurrent.Executors;
 /** Точка входа сервиса уведомлений: читает настройки, собирает все части и запускает бота и HTTP-приёмник. */
 public class Main {
     public static void main(String[] args) throws Exception {
+        System.setProperty("java.net.preferIPv4Stack", "true");
+
         Config config = Config.fromEnvironment();
         if (config.dbUrl == null) {
             System.err.println("Не задан DB_URL (а также DB_USER, DB_PASSWORD): адрес той же БД, что у IoT Core.");
@@ -40,7 +42,7 @@ public class Main {
         PostgresSettingsStore settings = new PostgresSettingsStore(db, config.defaultNorm, config.defaultDeviation);
         PostgresRuleStore rules = new PostgresRuleStore(db);   // таблица rute: нужна только старой команде /battery
         PostgresNormRules normRules = new PostgresNormRules(db);   // /norm: таблицы rule и device_to_rule
-        DeviceLimits limits = new StubDeviceLimits();   // ЗАГЛУШКА: заменить на класс тиммейта
+        DeviceLimits limits = new PostgresDeviceLimits(db);
 
         // каналы доставки
         TelegramClient telegram = new TelegramClient(

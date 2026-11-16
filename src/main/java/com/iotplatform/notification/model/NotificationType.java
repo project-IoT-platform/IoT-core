@@ -8,7 +8,7 @@ package com.iotplatform.notification.model;
  */
 public enum NotificationType {
     DEVICE_REGISTERED("Устройство зарегистрировано", "Регистрация", "#1e88e5", true),
-    USER_REGISTERED("Вы зарегистрированы на платформе", "Аккаунт", "#5e35b1", true),
+    USER_REGISTERED("ID для подтверждения регистрации", "Аккаунт", "#5e35b1", true),   // ИЗМЕНЕНО: заголовок
     LOW_BATTERY("Низкий заряд батареи", "Батарея", "#f9a825", true),   // ИЗМЕНЕНО: теперь и по почте
     TELEMETRY_ALERT("Отклонение показателей", "Предупреждение", "#e53935", true),
     DEVICE_STATUS("Статус устройства", "Статус", "#43a047", false);
