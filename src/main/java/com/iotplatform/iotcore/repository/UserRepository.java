@@ -2,6 +2,7 @@ package com.iotplatform.iotcore.repository;
 
 import com.iotplatform.iotcore.entity.UserEntity;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,4 +16,12 @@ public interface UserRepository {
 
     // ДОБАВЛЕНО: пользователь целиком по почте (для POST /api/login)
     Optional<UserEntity> findByEmail(String email);
+
+    /**
+     * НОВОЕ: страница пользователей для админки. emailQuery = часть почты (без учёта регистра) или null.
+     * Порядок стабильный: по почте, затем по id.
+     */
+    default List<UserEntity> findPage(String emailQuery, int limit, int offset) {
+        throw new UnsupportedOperationException("findPage");
+    }
 }

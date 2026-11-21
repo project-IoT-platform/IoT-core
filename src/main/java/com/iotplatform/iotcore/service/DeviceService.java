@@ -37,6 +37,11 @@ public class DeviceService {
         return devices.findByUserId(userId, limit, offset).stream().map(this::toDto).toList();
     }
 
+    /** НОВОЕ: поиск по названию, все совпадения (без пагинации). */
+    public List<DeviceDto> searchByName(UUID userId, String query) {
+        return devices.findByUserIdAndNameContaining(userId, query).stream().map(this::toDto).toList();
+    }
+
     public Optional<DeviceDto> findByIdAndUserId(UUID id, UUID userId) {
         return devices.findByIdAndUserId(id, userId).map(this::toDto);
     }

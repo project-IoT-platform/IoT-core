@@ -7,6 +7,7 @@ import com.iotplatform.iotcore.dto.DeviceDto;
 import com.iotplatform.iotcore.dto.TelemetryDto;
 import com.iotplatform.iotcore.dto.UserResponse;
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
+import com.iotplatform.iotcore.exception.UserNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.http.Json;
 import com.iotplatform.iotcore.model.DeviceState;
@@ -37,6 +38,9 @@ public class NotificationService {
 
     /** Лимиты устройства: нижняя граница заряда и границы телеметрии. */
     public record DeviceLimits(Integer batteryLowerBound, List<TelemetryLimitDto> telemetry) {}
+
+    /** НОВОЕ: как часто слать уведомления по каналам, в секундах. 0 = сразу. */
+    public record DeliveryPrefs(Integer emailIntervalSeconds, Integer telegramIntervalSeconds) {}
 
     private final String baseUrl;   // например http://localhost:8081
     private final HttpClient http = HttpClient.newBuilder()
@@ -127,6 +131,32 @@ public class NotificationService {
         }
         if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
         return parse(r.body(), new TypeReference<DeviceLimits>() {});
+    }
+
+    /** НОВОЕ: настройки частоты уведомлений пользователя (GET /users/{id}/notification-preferences). */
+    public DeliveryPrefs getDeliveryPrefs(UUID userId) {
+        HttpResponse<String> r = call(request("/users/" + userId + "/notification-preferences").GET().build());
+        if (r.statusCode() == 404) throw new UserNotFoundException(userId);
+        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
+        return parse(r.body(), new TypeReference<DeliveryPrefs>() {});
+    }
+
+    /** НОВОЕ: сохраняет частоту (PUT). Поле null = не менять. Возвращает актуальные значения. */
+    public DeliveryPrefs updateDeliveryPrefs(UUID userId, DeliveryPrefs prefs) {
+        String json;
+        try {
+            json = Json.MAPPER.writeValueAsString(prefs);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("не удалось собрать JSON", e);
+        }
+        HttpResponse<String> r = call(request("/users/" + userId + "/notification-preferences")
+                .PUT(HttpRequest.BodyPublishers.ofString(json)).build());
+        if (r.statusCode() == 404) throw new UserNotFoundException(userId);
+        if (r.statusCode() == 400) {
+            throw new ValidationException(parse(r.body(), new TypeReference<Map<String, String>>() {}));
+        }
+        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
+        return parse(r.body(), new TypeReference<DeliveryPrefs>() {});
     }
 
     public Settings getDefaults() {

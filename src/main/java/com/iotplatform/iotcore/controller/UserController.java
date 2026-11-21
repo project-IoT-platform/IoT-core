@@ -5,6 +5,7 @@ import com.iotplatform.iotcore.dto.UserResponse;
 import com.iotplatform.iotcore.service.NotificationService;
 import com.iotplatform.iotcore.service.UserService;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -34,6 +35,11 @@ public class UserController {
     // ДОБАВЛЕНО
     public UserResponse confirm(UUID id) {
         return service.confirm(id);
+    }
+
+    // НОВОЕ: список пользователей для админа
+    public List<UserResponse> list(UUID requesterId, String emailQuery, int limit, int offset) {
+        return service.list(requesterId, emailQuery, limit, offset);
     }
 
     public UserResponse update(UUID id, UserDto dto) {

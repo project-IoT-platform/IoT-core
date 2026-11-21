@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS telemetry (
                                          FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
     );
 
+-- НОВОЕ: индекс под выборки телеметрии конкретного типа по времени (график, среднее, последнее значение)
+CREATE INDEX IF NOT EXISTS telemetry_device_type_time_idx
+    ON telemetry (device_id, telemetry_type, recorded_at DESC);
+
 CREATE TABLE IF NOT EXISTS telegram_chats (
                                               user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     chat_id BIGINT NOT NULL UNIQUE

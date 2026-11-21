@@ -7,6 +7,8 @@ import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.repository.DeviceRepository;
 import com.iotplatform.iotcore.repository.TelemetryRepository;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -49,6 +51,29 @@ public class TelemetryService {
         devices.updateLastDataTime(dto.deviceId(), dto.time());
         LOG.log(System.Logger.Level.INFO, "СОХРАНЕНО: " + describe(dto));
         return outOfRange;
+    }
+
+    // ---- НОВОЕ: чтение для интерфейса. Устройство должно существовать, иначе 404 ----
+
+    public List<TelemetryRepository.Latest> latest(UUID deviceId) {
+        requireDevice(deviceId);
+        return telemetry.latestByType(deviceId);
+    }
+
+    public List<TelemetryRepository.Point> series(UUID deviceId, short type, Instant since, int limit) {
+        requireDevice(deviceId);
+        return telemetry.series(deviceId, type, since, limit);
+    }
+
+    public TelemetryRepository.Average average(UUID deviceId, short type, Instant since) {
+        requireDevice(deviceId);
+        return telemetry.averageByType(deviceId, type, since);
+    }
+
+    private void requireDevice(UUID deviceId) {
+        if (!devices.existsById(deviceId)) {
+            throw new DeviceNotFoundException(deviceId);
+        }
     }
 
     static String describe(TelemetryDto dto) {

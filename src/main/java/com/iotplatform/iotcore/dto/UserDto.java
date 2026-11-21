@@ -9,8 +9,11 @@ import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 public class UserDto {
+
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?\\d{11}$");
 
     private final UUID id;
     private final String email;
@@ -70,6 +73,9 @@ public class UserDto {
         }
         if (username != null && username.isBlank()) {
             errors.put("username", "не может быть пустым");
+        }
+        if (phone != null && !PHONE_PATTERN.matcher(phone.trim()).matches()) {
+            errors.put("phone", "должен содержать 11 цифр и может начинаться с +");
         }
         if (dateOfBirth != null && dateOfBirth.isAfter(LocalDate.now())) {
             errors.put("dateOfBirth", "дата не может быть в будущем");

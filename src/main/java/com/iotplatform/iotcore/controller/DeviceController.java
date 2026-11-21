@@ -27,10 +27,14 @@ public class DeviceController {
         return service.findByUserId(userId);
     }
 
-    /** Есть search: ищем это устройство среди устройств пользователя (0 или 1 элемент). Иначе страница списка. */
-    public List<DeviceDto> getByUserId(UUID userId, UUID search, int limit, int offset) {
+    /**
+     * ИЗМЕНЕНО: search теперь строка (часть названия), а не UUID.
+     * Есть search: все устройства пользователя с таким фрагментом в названии, без пагинации (limit/offset игнорируются).
+     * Иначе страница списка.
+     */
+    public List<DeviceDto> getByUserId(UUID userId, String search, int limit, int offset) {
         if (search != null) {
-            return service.findByIdAndUserId(search, userId).map(List::of).orElseGet(List::of);
+            return service.searchByName(userId, search);
         }
         return service.findByUserId(userId, limit, offset);
     }

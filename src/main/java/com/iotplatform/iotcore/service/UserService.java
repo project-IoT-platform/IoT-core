@@ -3,11 +3,13 @@ package com.iotplatform.iotcore.service;
 import com.iotplatform.iotcore.dto.UserDto;
 import com.iotplatform.iotcore.dto.UserResponse;
 import com.iotplatform.iotcore.entity.UserEntity;
+import com.iotplatform.iotcore.exception.ForbiddenException;
 import com.iotplatform.iotcore.exception.UserNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.model.UserRole;
 import com.iotplatform.iotcore.repository.UserRepository;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -26,6 +28,10 @@ public class UserService {
         return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
     }
 
+    static String normalizePhone(String phone) {
+        return phone == null ? null : phone.trim();
+    }
+
     // колонка username в БД NOT NULL, а при регистрации имя не вводится,
     // поэтому по умолчанию берём часть почты до «@»
     private static String defaultUsername(String email) {
@@ -37,6 +43,19 @@ public class UserService {
     public UserResponse findById(UUID id) {
         return users.findById(id).map(this::toResponse)
                 .orElseThrow(() -> new UserNotFoundException(id));
+    }
+
+    /**
+     * НОВОЕ: страница пользователей (вкладка «Пользователи», только для админов).
+     * Роль запрашивающего берём из БД, а не из запроса. Не админ -> ForbiddenException (HTTP 403).
+     */
+    public List<UserResponse> list(UUID requesterId, String emailQuery, int limit, int offset) {
+        UserEntity requester = users.findById(requesterId)
+                .orElseThrow(() -> new UserNotFoundException(requesterId));
+        if (requester.getRole() != UserRole.ADMIN) {
+            throw new ForbiddenException("Раздел доступен только администраторам");
+        }
+        return users.findPage(emailQuery, limit, offset).stream().map(this::toResponse).toList();
     }
 
     public boolean existsByEmail(String email) {
@@ -74,6 +93,7 @@ public class UserService {
     public synchronized UserResponse create(UserDto dto) {
         dto.validate(true);
         String email = normalizeEmail(dto.getEmail());
+        String phone = normalizePhone(dto.getPhone());
         UserRole role = dto.getRole() != null ? dto.getRole() : UserRole.GUEST;
         String username = dto.getUsername() != null ? dto.getUsername() : defaultUsername(email);
         byte[] hash = PasswordHasher.hash(dto.getPassword());
@@ -85,7 +105,7 @@ public class UserService {
                 throw new ValidationException(Map.of("email", "пользователь с такой почтой уже существует"));
             }
             user.setUsername(username);
-            user.setPhone(dto.getPhone());
+            user.setPhone(phone);
             user.setDateOfBirth(dto.getDateOfBirth());
             user.setPasswordHash(hash);
             user.setRole(role);
@@ -96,7 +116,7 @@ public class UserService {
         }
 
         UserEntity entity = new UserEntity(UUID.randomUUID(), username, email,
-                dto.getPhone(), dto.getDateOfBirth(), hash, role, false);
+                phone, dto.getDateOfBirth(), hash, role, false);
         UserResponse created = toResponse(users.save(entity));
         LOG.log(System.Logger.Level.INFO, "Пользователь " + created.id() + " (" + email + ") создан, ждёт подтверждения");
         return created;
@@ -124,7 +144,7 @@ public class UserService {
         }
 
         if (dto.getUsername() != null) user.setUsername(dto.getUsername());
-        if (dto.getPhone() != null) user.setPhone(dto.getPhone());
+        if (dto.getPhone() != null) user.setPhone(normalizePhone(dto.getPhone()));
         if (dto.getDateOfBirth() != null) user.setDateOfBirth(dto.getDateOfBirth());
         if (dto.getRole() != null) user.setRole(dto.getRole());
         if (dto.getPassword() != null) user.setPasswordHash(PasswordHasher.hash(dto.getPassword()));

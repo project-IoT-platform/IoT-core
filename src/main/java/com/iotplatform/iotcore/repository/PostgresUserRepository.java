@@ -8,6 +8,7 @@ import com.iotplatform.iotcore.model.UserRole;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -67,6 +68,19 @@ public class PostgresUserRepository implements UserRepository {
     public Optional<UserEntity> findByEmail(String email) {
         return databaseUtils.query("SELECT * FROM users WHERE email = ?",
                 PostgresUserRepository::mapRow, email).stream().findFirst();
+    }
+
+    // НОВОЕ: страница пользователей, поиск по части почты. Символы % _ \\ экранируем
+    @Override
+    public List<UserEntity> findPage(String emailQuery, int limit, int offset) {
+        if (emailQuery == null || emailQuery.isBlank()) {
+            return databaseUtils.query("SELECT * FROM users ORDER BY email, id LIMIT ? OFFSET ?",
+                    PostgresUserRepository::mapRow, limit, offset);
+        }
+        String pattern = "%" + emailQuery.trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        return databaseUtils.query(
+                "SELECT * FROM users WHERE email ILIKE ? ESCAPE '\\' ORDER BY email, id LIMIT ? OFFSET ?",
+                PostgresUserRepository::mapRow, pattern, limit, offset);
     }
 
     private static UserEntity mapRow(ResultSet rs) throws DatabaseException {

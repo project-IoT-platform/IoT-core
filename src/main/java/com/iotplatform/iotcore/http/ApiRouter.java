@@ -11,9 +11,11 @@ import com.iotplatform.iotcore.dto.RuleDto;
 import com.iotplatform.iotcore.dto.TelemetryDto;
 import com.iotplatform.iotcore.dto.UserDto;
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
+import com.iotplatform.iotcore.exception.ForbiddenException;
 import com.iotplatform.iotcore.exception.RuleNotFoundException;
 import com.iotplatform.iotcore.exception.UserNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
+import com.iotplatform.iotcore.repository.TelemetryRepository;
 import com.iotplatform.iotcore.service.NotificationService;
 import io.netty.handler.codec.http.QueryStringDecoder;
 
@@ -21,6 +23,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -90,6 +95,8 @@ final class ApiRouter {
             return json(400, e.getErrors());
         } catch (DeviceNotFoundException | UserNotFoundException | RuleNotFoundException e) {
             return json(404, Map.of("error", String.valueOf(e.getMessage())));
+        } catch (ForbiddenException e) {   // НОВОЕ: список пользователей не для админа
+            return json(403, Map.of("error", String.valueOf(e.getMessage())));
         } catch (UnsupportedOperationException e) {
             return json(501, Map.of("error", "Ещё не реализовано: " + e.getMessage()));
         } catch (Exception e) {
@@ -123,6 +130,16 @@ final class ApiRouter {
                 && parts[2].equals("users") && parts[4].equals("confirm")) {
             return confirmUser(method, parts[3]);
         }
+        // НОВОЕ: GET/PUT /api/users/{id}/notification-preferences (проксируется в сервис уведомлений)
+        if (parts.length == 5 && parts[0].isEmpty() && parts[1].equals("api")
+                && parts[2].equals("users") && parts[4].equals("notification-preferences")) {
+            return notificationPrefs(method, parts[3], body);
+        }
+        // НОВОЕ: GET /api/devices/{id}/telemetry[/latest|/average]
+        if ((parts.length == 5 || parts.length == 6) && parts[0].isEmpty() && parts[1].equals("api")
+                && parts[2].equals("devices") && parts[4].equals("telemetry")) {
+            return deviceTelemetry(method, parts, uri);
+        }
         // GET/PUT /api/devices/{id}/limits (проксируется в сервис уведомлений)
         if (parts.length == 5 && parts[0].isEmpty() && parts[1].equals("api")
                 && parts[2].equals("devices") && parts[4].equals("limits")) {
@@ -148,9 +165,13 @@ final class ApiRouter {
             return notFound();
         }
 
-        // GET /api/devices?userId={uuid}&limit=10&offset=0&search={uuid}
+        // GET /api/devices?userId={uuid}&limit=10&offset=0&search={часть названия}
         if (method.equals("GET") && parts.length == 3 && resource.equals("devices")) {
             return devicesByUser(uri);
+        }
+        // НОВОЕ: GET /api/users?requesterId={uuid}&limit=10&offset=0&search={часть почты} (только админ)
+        if (method.equals("GET") && parts.length == 3 && resource.equals("users")) {
+            return usersPage(uri);
         }
 
         UUID id = null;
@@ -222,16 +243,131 @@ final class ApiRouter {
             return json(400, Map.of("error", "offset не может быть отрицательным"));
         }
 
-        UUID search = null;
-        String rawSearch = first(params, "search");
-        if (rawSearch != null && !rawSearch.isBlank()) {
-            try {
-                search = UUID.fromString(rawSearch.trim());
-            } catch (IllegalArgumentException e) {
-                return json(400, Map.of("error", "некорректный UUID"));
-            }
+        // ИЗМЕНЕНО: search теперь часть названия устройства (раньше был UUID). С search отдаём все совпадения без пагинации
+        String search = first(params, "search");
+        if (search != null) {
+            search = search.trim();
+            if (search.isEmpty()) search = null;
+            else if (search.length() > 100) return json(400, Map.of("error", "search не длиннее 100 символов"));
         }
         return json(200, deviceController.getByUserId(userId, search, limit, offset));
+    }
+
+    // ---- НОВОЕ: список пользователей (только админ) ----
+
+    private Response usersPage(String uri) {
+        Map<String, List<String>> params = new QueryStringDecoder(uri).parameters();
+        String rawRequester = first(params, "requesterId");
+        if (rawRequester == null || rawRequester.isBlank()) {
+            return json(400, Map.of("error", "requesterId обязателен"));
+        }
+        UUID requesterId;
+        try {
+            requesterId = UUID.fromString(rawRequester.trim());
+        } catch (IllegalArgumentException e) {
+            return json(400, Map.of("error", "некорректный UUID"));
+        }
+        int limit = intParam(params, "limit", DEFAULT_LIMIT);
+        int offset = intParam(params, "offset", 0);
+        if (limit < 1 || limit > MAX_LIMIT) {
+            return json(400, Map.of("error", "limit должен быть от 1 до " + MAX_LIMIT));
+        }
+        if (offset < 0) {
+            return json(400, Map.of("error", "offset не может быть отрицательным"));
+        }
+        String search = first(params, "search");
+        if (search != null) {
+            search = search.trim();
+            if (search.isEmpty()) search = null;
+            else if (search.length() > 100) return json(400, Map.of("error", "search не длиннее 100 символов"));
+        }
+        return json(200, userController.list(requesterId, search, limit, offset));
+    }
+
+    private static int intParam(Map<String, List<String>> params, String name, int fallback) {
+        String raw = first(params, name);
+        if (raw == null || raw.isBlank()) return fallback;
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            throw new ValidationException(Map.of(name, "должно быть целым числом"));
+        }
+    }
+
+    // ---- НОВОЕ: настройки частоты уведомлений ----
+
+    private Response notificationPrefs(String method, String rawId, byte[] body) throws IOException {
+        UUID id = uuid(rawId);
+        if (method.equals("GET")) {
+            return json(200, limitsClient.getDeliveryPrefs(id));
+        }
+        if (method.equals("PUT")) {
+            return json(200, limitsClient.updateDeliveryPrefs(id,
+                    read(body, NotificationService.DeliveryPrefs.class)));
+        }
+        return methodNotAllowed();
+    }
+
+    // ---- НОВОЕ: телеметрия устройства для плиток и графика ----
+    //   GET /api/devices/{id}/telemetry/latest                          -> [{telemetryType, value, time}]
+    //   GET /api/devices/{id}/telemetry?type=1&limit=60[&since=ISO]     -> [{time, value}] по возрастанию времени
+    //   GET /api/devices/{id}/telemetry/average?type=1&since=ISO        -> {telemetryType, since, average, count}
+
+    private static final int DEFAULT_POINTS = 60;
+    private static final int MAX_POINTS = 1000;
+
+    private Response deviceTelemetry(String method, String[] parts, String uri) {
+        if (!method.equals("GET")) return methodNotAllowed();
+        UUID deviceId = uuid(parts[3]);
+        Map<String, List<String>> params = new QueryStringDecoder(uri).parameters();
+
+        if (parts.length == 6 && parts[5].equals("latest")) {
+            return json(200, telemetryController.latest(deviceId));
+        }
+        if (parts.length == 6 && parts[5].equals("average")) {
+            short type = telemetryType(params);
+            Instant since = instantParam(params, "since", true);
+            TelemetryRepository.Average avg = telemetryController.average(deviceId, type, since);
+            Map<String, Object> out = new LinkedHashMap<>();   // LinkedHashMap: Map.of не принимает null в average
+            out.put("telemetryType", type);
+            out.put("since", since);
+            out.put("average", avg.average());
+            out.put("count", avg.count());
+            return json(200, out);
+        }
+        if (parts.length == 5) {
+            short type = telemetryType(params);
+            Instant since = instantParam(params, "since", false);
+            int limit = intParam(params, "limit", DEFAULT_POINTS);
+            if (limit < 1 || limit > MAX_POINTS) {
+                return json(400, Map.of("error", "limit должен быть от 1 до " + MAX_POINTS));
+            }
+            return json(200, telemetryController.series(deviceId, type, since, limit));
+        }
+        return notFound();
+    }
+
+    private static short telemetryType(Map<String, List<String>> params) {
+        String raw = first(params, "type");
+        if (raw == null || raw.isBlank()) throw new ValidationException(Map.of("type", "обязательное поле"));
+        try {
+            return Short.parseShort(raw.trim());
+        } catch (NumberFormatException e) {
+            throw new ValidationException(Map.of("type", "должно быть целым числом"));
+        }
+    }
+
+    private static Instant instantParam(Map<String, List<String>> params, String name, boolean required) {
+        String raw = first(params, name);
+        if (raw == null || raw.isBlank()) {
+            if (required) throw new ValidationException(Map.of(name, "обязательное поле"));
+            return null;
+        }
+        try {
+            return Instant.parse(raw.trim());   // ISO-8601 в UTC, например 2026-11-21T10:00:00.000Z
+        } catch (DateTimeParseException e) {
+            throw new ValidationException(Map.of(name, "ожидается время в формате ISO-8601, например 2026-11-21T10:00:00Z"));
+        }
     }
 
     private Response deviceLimits(String method, String rawId, byte[] body) throws IOException {

@@ -115,6 +115,15 @@ public class PostgresDeviceRepository implements DeviceRepository {
                 PostgresDeviceRepository::mapRow, userId, limit, offset);
     }
 
+    // НОВОЕ: поиск по названию. Символы % _ \ в запросе экранируем, чтобы они искались как обычные
+    @Override
+    public List<DeviceEntity> findByUserIdAndNameContaining(UUID userId, String query) {
+        String pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        return databaseUtils.query(
+                "SELECT * FROM device WHERE user_id = ? AND name ILIKE ? ESCAPE '\\' ORDER BY name, id",
+                PostgresDeviceRepository::mapRow, userId, pattern);
+    }
+
     @Override
     public Optional<DeviceEntity> findByIdAndUserId(UUID id, UUID userId) {
         return databaseUtils.query("SELECT * FROM device WHERE id = ? AND user_id = ?",

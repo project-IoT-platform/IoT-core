@@ -29,6 +29,17 @@ public interface DeviceRepository {
         return findByUserId(userId).stream().skip(offset).limit(limit).toList();
     }
 
+    /**
+     * НОВОЕ: все устройства пользователя, в названии которых есть query (без учёта регистра), без пагинации.
+     * Реализация по умолчанию фильтрует в памяти; Postgres-реализация делает это в SQL.
+     */
+    default List<DeviceEntity> findByUserIdAndNameContaining(UUID userId, String query) {
+        String needle = query == null ? "" : query.toLowerCase();
+        return findByUserId(userId).stream()
+                .filter(d -> d.getName() != null && d.getName().toLowerCase().contains(needle))
+                .toList();
+    }
+
     /** Устройство по id, только если оно принадлежит пользователю. */
     default Optional<DeviceEntity> findByIdAndUserId(UUID id, UUID userId) {
         return findById(id).filter(d -> userId != null && userId.equals(d.getUserId()));
