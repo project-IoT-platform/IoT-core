@@ -10,17 +10,34 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
+/**
+ * Контроллер приёма телеметрии: сохраняет показание, пишет нарушения правил в лог и запускает уведомления.
+ */
 public class TelemetryController {
     private static final Logger log = LoggerFactory.getLogger(TelemetryController.class);
 
     private final TelemetryService service;
     private final AlertService alerts;
 
+    /**
+     * Создаёт контроллер.
+     *
+     * @param service сервис обработки телеметрии
+     * @param alerts сервис проверок на норму
+     */
     public TelemetryController(TelemetryService service, AlertService alerts) {
         this.service = service;
         this.alerts = alerts;
     }
 
+    /**
+     * Принимает показание. Если нарушено строгое правило, показание отклоняется. Если нарушены только нестрогие,
+     * данные сохраняются, нарушение пишется в лог и отправляется уведомление.
+     *
+     * @param dto показание устройства
+     * @throws com.iotplatform.iotcore.exception.ValidationException если показание некорректно или нарушает строгое правило
+     * @throws com.iotplatform.iotcore.exception.DeviceNotFoundException если устройства нет
+     */
     public void receive(TelemetryDto dto) {
         Map<String, String> outOfRange;
         try {

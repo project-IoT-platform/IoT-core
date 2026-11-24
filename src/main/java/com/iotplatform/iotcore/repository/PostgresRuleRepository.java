@@ -11,13 +11,28 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Реализация {@link RuleRepository} на PostgreSQL (таблицы {@code rule} и {@code device_to_rule}).
+ */
 public class PostgresRuleRepository implements RuleRepository {
     private final DatabaseUtils databaseUtils;
 
+    /**
+     * Создаёт репозиторий.
+     *
+     * @param databaseUtils доступ к БД
+     */
     public PostgresRuleRepository(DatabaseUtils databaseUtils) {
         this.databaseUtils = databaseUtils;
     }
 
+    /**
+     * Вставляет новое правило.
+     *
+     * @param rule сохраняемое правило
+     * @return то же правило
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
     @Override
     public RuleEntity save(RuleEntity rule) {
         databaseUtils.update(
@@ -27,17 +42,38 @@ public class PostgresRuleRepository implements RuleRepository {
         return rule;
     }
 
+    /**
+     * Ищет правило по id.
+     *
+     * @param id идентификатор правила
+     * @return правило или пустой {@code Optional}
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
     @Override
     public Optional<RuleEntity> findById(UUID id) {
         return databaseUtils.query("SELECT * FROM rule WHERE id = ?",
                 PostgresRuleRepository::mapRow, id).stream().findFirst();
     }
 
+    /**
+     * Удаляет правило.
+     *
+     * @param id идентификатор правила
+     * @return {@code true}, если запись удалена
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
     @Override
     public boolean deleteById(UUID id) {
         return databaseUtils.update("DELETE FROM rule WHERE id = ?", id) > 0;
     }
 
+    /**
+     * Создаёт связь правила с устройством; если связь уже есть, ничего не делает.
+     *
+     * @param ruleId идентификатор правила
+     * @param deviceId идентификатор устройства
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
     @Override
     public void attachToDevice(UUID ruleId, UUID deviceId) {
         databaseUtils.update(
@@ -46,6 +82,14 @@ public class PostgresRuleRepository implements RuleRepository {
                 UUID.randomUUID(), ruleId, deviceId);
     }
 
+    /**
+     * Удаляет связь правила с устройством.
+     *
+     * @param ruleId идентификатор правила
+     * @param deviceId идентификатор устройства
+     * @return {@code true}, если связь существовала
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
     @Override
     public boolean detachFromDevice(UUID ruleId, UUID deviceId) {
         return databaseUtils.update(
@@ -53,6 +97,13 @@ public class PostgresRuleRepository implements RuleRepository {
                 ruleId, deviceId) > 0;
     }
 
+    /**
+     * Возвращает все правила, привязанные к устройству.
+     *
+     * @param deviceId идентификатор устройства
+     * @return список правил (может быть пустым)
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
     @Override
     public List<RuleEntity> findByDeviceId(UUID deviceId) {
         return databaseUtils.query(

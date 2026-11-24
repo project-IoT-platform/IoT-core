@@ -24,9 +24,19 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * HTTP-клиент сервиса уведомлений. События (регистрация, разряд, отклонение) отправляются асинхронно и не задерживают
+ * ответ; ошибки отправки только логируются. Запросы статуса и настроек выполняются синхронно с таймаутом 5 секунд.
+ */
 public class NotificationService {
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
+    /**
+     * Общие значения нормы и допустимого отклонения.
+     *
+     * @param norm норма
+     * @param deviation допустимое отклонение
+     */
     public record Settings(Double norm, Double deviation) {}
 
     private final String baseUrl;   // например http://localhost:8081
@@ -34,15 +44,30 @@ public class NotificationService {
             .connectTimeout(Duration.ofSeconds(3))
             .build();
 
+    /**
+     * Создаёт клиент.
+     *
+     * @param baseUrl адрес сервиса уведомлений, например {@code http://localhost:8081}; завершающие слэши отбрасываются
+     */
     public NotificationService(String baseUrl) {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
     }
 
+    /**
+     * Сообщает сервису уведомлений, что устройство зарегистрировано (отправка асинхронная, ошибки только в лог).
+     *
+     * @param device данные устройства
+     */
     public void notifyDeviceRegistered(DeviceDto device) {
         sendEvent("/events/device-registered", device);
     }
 
-    /** Новый пользователь сохранён: письмо с его id. */
+    /**
+     * Сообщает сервису уведомлений о новом пользователе, чтобы тот отправил письмо с его id
+     * (отправка асинхронная, ошибки только в лог).
+     *
+     * @param user сохранённый пользователь
+     */
     public void notifyUserRegistered(UserResponse user) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("userId", user.id());
@@ -51,7 +76,12 @@ public class NotificationService {
         sendEvent("/events/user-registered", body);
     }
 
-    /** Заряд ниже нормы (результат проверки заряда). */
+    /**
+     * Сообщает о заряде ниже нормы (отправка асинхронная, ошибки только в лог).
+     *
+     * @param deviceId идентификатор устройства
+     * @param r результат проверки заряда
+     */
     public void batteryLow(UUID deviceId, BatteryCheckResult r) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("deviceId", deviceId);
@@ -61,7 +91,13 @@ public class NotificationService {
         sendEvent("/events/battery-low", body);
     }
 
-    /** Показание вне нормы (результат проверки телеметрии). */
+    /**
+     * Сообщает о показании вне нормы (отправка асинхронная, ошибки только в лог).
+     * Если в результате проверки нет значения, берётся значение из показания.
+     *
+     * @param t показание
+     * @param r результат проверки на норму
+     */
     public void telemetryAlert(TelemetryDto t, TelemetryCheckResult r) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("deviceId", t.deviceId());
@@ -74,6 +110,14 @@ public class NotificationService {
         sendEvent("/events/telemetry-alert", body);
     }
 
+    /**
+     * Просит сервис уведомлений отправить владельцу статус устройства.
+     *
+     * @param deviceId идентификатор устройства
+     * @return состояние устройства, которое сообщил сервис уведомлений
+     * @throws DeviceNotFoundException если сервис уведомлений ответил 404
+     * @throws UnsupportedOperationException если сервис недоступен, ответил не 200 или прислал некорректное состояние
+     */
     public DeviceState sendDeviceStatus(UUID deviceId) {
         HttpResponse<String> r = call(request("/devices/" + deviceId + "/status")
                 .POST(HttpRequest.BodyPublishers.noBody()).build());
@@ -89,12 +133,27 @@ public class NotificationService {
         }
     }
 
+    /**
+     * Запрашивает общие значения нормы и отклонения.
+     *
+     * @return текущие настройки
+     * @throws UnsupportedOperationException если сервис недоступен, ответил не 200 или прислал непонятный ответ
+     */
     public Settings getDefaults() {
         HttpResponse<String> r = call(request("/settings").GET().build());
         if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
         return parse(r.body(), new TypeReference<Settings>() {});
     }
 
+    /**
+     * Отправляет новые общие значения нормы и отклонения.
+     *
+     * @param settings новые значения
+     * @return настройки после изменения
+     * @throws ValidationException если сервис уведомлений ответил 400 (ошибки берутся из его ответа)
+     * @throws IllegalArgumentException если настройки не удалось превратить в JSON
+     * @throws UnsupportedOperationException если сервис недоступен, ответил иначе чем 200 или 400 или прислал непонятный ответ
+     */
     public Settings updateDefaults(Settings settings) {
         String json;
         try {

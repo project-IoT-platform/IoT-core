@@ -1,7 +1,22 @@
 package com.iotplatform.iotcore.model;
 
+/**
+ * Оператор сравнения в правиле: {@code GE} ({@code >=}), {@code LE} ({@code <=}), {@code GT} ({@code >}),
+ * {@code LT} ({@code <}), {@code EQ} ({@code ==}), {@code NE} ({@code !=}). Дробные числа сравниваются с допуском 1e-9.
+ */
 public enum RuleOperator {
-    GE(">="), LE("<="), GT(">"), LT("<"), EQ("=="), NE("!=");
+    /** Больше или равно ({@code >=}). */
+    GE(">="),
+    /** Меньше или равно ({@code <=}). */
+    LE("<="),
+    /** Строго больше ({@code >}). */
+    GT(">"),
+    /** Строго меньше ({@code <}). */
+    LT("<"),
+    /** Равно ({@code ==}) с допуском 1e-9. */
+    EQ("=="),
+    /** Не равно ({@code !=}) с допуском 1e-9. */
+    NE("!=");
 
     private final String symbol;
 
@@ -11,6 +26,11 @@ public enum RuleOperator {
         this.symbol = symbol;
     }
 
+    /**
+     * Возвращает запись оператора, например {@code >=}.
+     *
+     * @return запись оператора, например {@code >=}
+     */
     public String getSymbol() {
         return symbol;
     }
@@ -19,6 +39,13 @@ public enum RuleOperator {
         return a == b || Math.abs(a - b) <= EPSILON;
     }
 
+    /**
+     * Проверяет, выполняется ли условие {@code actual <оператор> limit}.
+     *
+     * @param actual фактическое значение показания
+     * @param limit граничное значение из правила
+     * @return {@code true}, если условие выполнено
+     */
     public boolean test(double actual, double limit) {
         return switch (this) {
             case GE -> actual > limit || equalWithTolerance(actual, limit);

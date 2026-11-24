@@ -2,7 +2,17 @@ package com.iotplatform.iotcore.check;
 
 import java.util.UUID;
 
-/** Проверка заряда батареи: id устройства и заряд. */
+/**
+ * Проверка заряда батареи устройства. Реализацию пишет отдельный участник команды,
+ * пока подключена заглушка {@link StubBatteryChecker}.
+ */
 public interface BatteryChecker {
+    /**
+     * Проверяет, не ниже ли нормы заряд устройства.
+     *
+     * @param deviceId идентификатор устройства
+     * @param batteryLevel текущий заряд в процентах
+     * @return результат проверки; в норме {@link BatteryCheckResult#normal()}
+     */
     BatteryCheckResult check(UUID deviceId, int batteryLevel);
 }

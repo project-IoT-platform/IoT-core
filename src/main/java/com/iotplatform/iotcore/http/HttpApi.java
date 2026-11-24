@@ -15,6 +15,10 @@ import io.netty.util.concurrent.EventExecutorGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * HTTP-сервер IoT Core на Netty: принимает запросы на порту, разбирает JSON и передаёт запрос роутеру,
+ * который вызывает нужный контроллер. Размер тела запроса ограничен 1 МБ.
+ */
 public class HttpApi {
     private static final Logger log = LoggerFactory.getLogger(HttpApi.class);
 
@@ -28,6 +32,16 @@ public class HttpApi {
     private EventExecutorGroup businessGroup;
     private Channel serverChannel;
 
+    /**
+     * Создаёт сервер (без запуска).
+     *
+     * @param port порт, который будет слушать сервер
+     * @param deviceController контроллер устройств
+     * @param userController контроллер пользователей
+     * @param telemetryController контроллер телеметрии
+     * @param notificationController контроллер уведомлений
+     * @param ruleController контроллер правил
+     */
     public HttpApi(int port,
                    DeviceController deviceController,
                    UserController userController,
@@ -39,6 +53,11 @@ public class HttpApi {
                 telemetryController, notificationController, ruleController);
     }
 
+    /**
+     * Запускает сервер и регистрирует остановку при завершении JVM.
+     *
+     * @throws IllegalStateException если порт занят или сервер не удалось запустить (ресурсы при этом освобождаются)
+     */
     public void start() {
         bossGroup = new NioEventLoopGroup(1);
         workerGroup = new NioEventLoopGroup();
@@ -65,6 +84,9 @@ public class HttpApi {
         log.info("IoT Core started on port {}", port);
     }
 
+    /**
+     * Останавливает сервер: закрывает канал и завершает пулы потоков. Можно вызывать, даже если сервер не запускался.
+     */
     public void stop() {
         if (serverChannel != null) serverChannel.close();
         if (businessGroup != null) businessGroup.shutdownGracefully();

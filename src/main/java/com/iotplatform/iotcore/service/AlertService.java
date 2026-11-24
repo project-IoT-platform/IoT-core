@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Проверки на норму после того, как данные прошли валидацию и сохранены.
  * Если показание или заряд вне нормы, результат проверки уходит в сервис уведомлений.
- * Ошибка внутри проверки не ломает запрос: данные уже сохранены, поэтому ошибку только пишем в лог.
+ * Ошибка внутри проверки не ломает запрос: данные уже сохранены, поэтому ошибка только пишется в лог.
  */
 public class AlertService {
     private static final Logger log = LoggerFactory.getLogger(AlertService.class);
@@ -23,6 +23,13 @@ public class AlertService {
     private final DeviceRepository devices;
     private final NotificationService notifications;
 
+    /**
+     * Создаёт сервис.
+     *
+     * @param batteryChecker проверка заряда батареи
+     * @param devices хранилище устройств (хранит флаг «уведомление о заряде уже отправлено»)
+     * @param notifications клиент сервиса уведомлений
+     */
     public AlertService(BatteryChecker batteryChecker,
                         DeviceRepository devices, NotificationService notifications) {
         this.batteryChecker = batteryChecker;
@@ -30,6 +37,13 @@ public class AlertService {
         this.notifications = notifications;
     }
 
+    /**
+     * Отправляет уведомление, если показание нарушило нестрогие правила.
+     * Если нарушений нет, ничего не делает. Ошибки отправки в лог, наружу не выбрасываются.
+     *
+     * @param t сохранённое показание
+     * @param ruleViolations нарушения нестрогих правил (из {@code RuleEngine}); {@code null} или пустая карта означает «всё в норме»
+     */
     public void onTelemetry(TelemetryDto t, Map<String, String> ruleViolations) {
         if (ruleViolations == null || ruleViolations.isEmpty()) {
             log.debug("Telemetry within rules: device {}", t.deviceId());
@@ -45,8 +59,12 @@ public class AlertService {
     }
 
     /**
-     * Заряд ниже нормы: уведомление отправляем один раз. Флаг battery_notify_allowed становится false.
-     * Когда заряд снова в норме (выше нижней границы), флаг возвращается в true, и в следующий раз опять сообщим.
+     * Проверяет заряд батареи. Если заряд ниже нормы, уведомление отправляется один раз: флаг
+     * {@code battery_notify_allowed} сбрасывается. Когда заряд снова в норме, флаг возвращается и в следующий раз о разряде сообщат опять.
+     * Ошибки проверки и отправки в лог, наружу не выбрасываются.
+     *
+     * @param deviceId идентификатор устройства; при {@code null} ничего не делается
+     * @param batteryLevel заряд в процентах; при {@code null} ничего не делается
      */
     public void onBattery(UUID deviceId, Integer batteryLevel) {
         if (deviceId == null || batteryLevel == null) return;

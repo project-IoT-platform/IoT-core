@@ -5,6 +5,9 @@ import javax.crypto.spec.PBEKeySpec;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 
+/**
+ * Хеширование паролей: PBKDF2WithHmacSHA256, 120 000 итераций, ключ 256 бит, случайная соль 16 байт.
+ */
 public final class PasswordHasher {
     private static final int ITERATIONS = 120_000;
     private static final int KEY_BITS = 256;
@@ -12,6 +15,14 @@ public final class PasswordHasher {
 
     private PasswordHasher() {}
 
+    /**
+     * Хеширует пароль со случайной солью.
+     *
+     * @param password пароль в открытом виде
+     * @return 48 байт: первые 16 это соль, остальные 32 это полученный ключ
+     * @throws NullPointerException если {@code password} равен {@code null}
+     * @throws IllegalStateException если алгоритм хеширования недоступен
+     */
     public static byte[] hash(String password) {
         try {
             byte[] salt = new byte[SALT_BYTES];

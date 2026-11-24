@@ -11,18 +11,36 @@ import java.util.List;
 import java.util.Properties;
 import java.time.Instant;
 import java.time.ZoneOffset;
+/**
+ * Простая обёртка над JDBC: открывает соединение на каждую операцию, подставляет параметры в SQL-запрос,
+ * выполняет запросы и применяет схему БД.
+ */
 public class DatabaseUtils {
 
     private final String url;
     private final String user;
     private final String password;
 
+    /**
+     * Создаёт объект с параметрами подключения.
+     *
+     * @param url JDBC-адрес базы
+     * @param user имя пользователя БД
+     * @param password пароль пользователя БД
+     */
     public DatabaseUtils(String url, String user, String password) {
         this.url = url;
         this.user = user;
         this.password = password;
     }
 
+    /**
+     * Создаёт объект по файлу настроек из classpath с ключами {@code db.url}, {@code db.user}, {@code db.password}.
+     *
+     * @param fileName путь к файлу в ресурсах, например {@code /db.properties}
+     * @return настроенный объект
+     * @throws RuntimeException если файл не найден или не прочитан
+     */
     public static DatabaseUtils fromProperties(String fileName) {
         Properties props = new Properties();
         try (InputStream in = DatabaseUtils.class.getResourceAsStream(fileName)) {
@@ -36,10 +54,24 @@ public class DatabaseUtils {
                 props.getProperty("db.password"));
     }
 
+    /**
+     * Открывает новое соединение с БД. Закрывать его должен вызывающий код.
+     *
+     * @return новое соединение
+     * @throws SQLException если подключиться не удалось
+     */
     public Connection getConnection() throws SQLException {
         return DriverManager.getConnection(url, user, password);
     }
 
+    /**
+     * Выполняет изменяющий запрос (INSERT, UPDATE, DELETE).
+     *
+     * @param sql SQL с символами {@code ?} вместо параметров
+     * @param params значения параметров; {@code Instant} преобразуется в UTC-время, {@code enum} в строку с его именем
+     * @return количество затронутых строк
+     * @throws DatabaseException если запрос не выполнился
+     */
     public int update(String sql, Object... params) throws DatabaseException {
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -52,6 +84,16 @@ public class DatabaseUtils {
         }
     }
 
+    /**
+     * Выполняет SELECT и преобразует каждую строку результата в объект.
+     *
+     * @param sql SQL с символами {@code ?} вместо параметров
+     * @param mapper преобразователь строки результата в объект
+     * @param params значения параметров запроса
+     * @param <T> тип объектов результата
+     * @return список объектов в порядке строк результата (может быть пустым)
+     * @throws DatabaseException если запрос не выполнился
+     */
     public <T> List<T> query(String sql, RowMapper<T> mapper, Object... params) throws DatabaseException { // преобразование набора строки с "дырками" в SQL-запрос
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -82,6 +124,11 @@ public class DatabaseUtils {
         }
     }
 
+    /**
+     * Выполняет скрипт {@code /schema.sql} из ресурсов. Повторный запуск безопасен, если скрипт идемпотентен.
+     *
+     * @throws RuntimeException если скрипт не найден, не прочитан или выполнился с ошибкой
+     */
     public void initSchema() {
         String script;
         try (InputStream in = DatabaseUtils.class.getResourceAsStream("/schema.sql")) {

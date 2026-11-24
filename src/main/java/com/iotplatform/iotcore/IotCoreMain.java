@@ -9,10 +9,24 @@ import com.iotplatform.iotcore.service.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Точка входа IoT Core: собирает слои (БД, сервисы, контроллеры) и запускает HTTP-сервер. */
+/**
+ * Точка входа IoT Core.
+ * Собирает слои приложения (БД, репозитории, сервисы, контроллеры) и запускает HTTP-сервер.
+ */
 public class IotCoreMain {
     private static final Logger log = LoggerFactory.getLogger(IotCoreMain.class);
 
+    /**
+     * Запускает IoT Core.
+     * Порт берётся из переменной окружения {@code PORT} (по умолчанию 8082), адрес сервиса уведомлений из
+     * {@code NOTIFICATION_URL} (по умолчанию {@code http://localhost:8081}). Параметры БД читаются из {@code /db.properties},
+     * затем выполняется {@code schema.sql}, создаются репозитории, сервисы и контроллеры, поднимается {@link com.iotplatform.iotcore.http.HttpApi}.
+     *
+     * @param args аргументы командной строки, не используются
+     * @throws NumberFormatException если {@code PORT} задан не числом
+     * @throws RuntimeException если не удалось прочитать {@code db.properties} или выполнить {@code schema.sql}
+     * @throws IllegalStateException если HTTP-сервер не смог занять порт
+     */
     public static void main(String[] args) {
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8082"));
         // Адрес сервиса уведомлений. Telegram-токен, SMTP и нормы теперь живут в нём, а не здесь.

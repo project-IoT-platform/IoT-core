@@ -13,22 +13,44 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Бизнес-логика устройств: поиск, регистрация, обновление и удаление.
+ */
 public class DeviceService {
     private static final Logger log = LoggerFactory.getLogger(DeviceService.class);
 
     private final DeviceRepository devices;
     private final UserRepository users;
 
+    /**
+     * Создаёт сервис.
+     *
+     * @param devices хранилище устройств
+     * @param users хранилище пользователей (проверка владельца)
+     */
     public DeviceService(DeviceRepository devices, UserRepository users) {
         this.devices = devices;
         this.users = users;
     }
 
+    /**
+     * Ищет устройство по id.
+     *
+     * @param id идентификатор устройства
+     * @return найденное устройство
+     * @throws DeviceNotFoundException если устройства нет
+     */
     public DeviceDto findById(UUID id) {
         return devices.findById(id).map(this::toDto)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
     }
 
+    /**
+     * Регистрирует устройство. Если устройство с таким id уже есть, оно обновляется, а время последних данных сохраняется.
+     *
+     * @param dto данные устройства
+     * @throws ValidationException если данные некорректны или указанного владельца нет
+     */
     public void register(DeviceDto dto) {
         dto.validate();
         checkUserExists(dto.getUserId());
@@ -38,6 +60,16 @@ public class DeviceService {
         log.info("Device {} saved (user {})", dto.getDeviceId(), dto.getUserId());
     }
 
+    /**
+     * Обновляет существующее устройство. Идентификатор берётся из аргумента {@code id}, а не из тела.
+     * Время последних данных не меняется.
+     *
+     * @param id идентификатор устройства
+     * @param dto новые данные
+     * @return сохранённое устройство
+     * @throws DeviceNotFoundException если устройства нет
+     * @throws ValidationException если данные некорректны или указанного владельца нет
+     */
     public DeviceDto update(UUID id, DeviceDto dto) {
         DeviceDto withId = dto.withDeviceId(id);
         withId.validate();
@@ -48,6 +80,12 @@ public class DeviceService {
         return toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
     }
 
+    /**
+     * Удаляет устройство.
+     *
+     * @param id идентификатор устройства
+     * @throws DeviceNotFoundException если устройства нет
+     */
     public void delete(UUID id) {
         if (!devices.deleteById(id)) {
             throw new DeviceNotFoundException(id);

@@ -9,13 +9,27 @@ import java.util.OptionalDouble;
 import java.util.UUID;
 
 // мб запись телеметрии и обновление lastDataTime на устройстве делать в одной транзакции?
+/**
+ * Реализация {@link TelemetryRepository} на PostgreSQL (таблица {@code telemetry}).
+ */
 public class PostgresTelemetryRepository implements TelemetryRepository {
     private final DatabaseUtils databaseUtils;
 
+    /**
+     * Создаёт репозиторий.
+     *
+     * @param databaseUtils доступ к БД
+     */
     public PostgresTelemetryRepository(DatabaseUtils databaseUtils) {
         this.databaseUtils = databaseUtils;
     }
 
+    /**
+     * Вставляет запись телеметрии.
+     *
+     * @param telemetry запись
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
     @Override
     public void save(TelemetryEntity telemetry) {
         databaseUtils.update(
@@ -27,6 +41,14 @@ public class PostgresTelemetryRepository implements TelemetryRepository {
 
     }
 
+    /**
+     * Считает {@code AVG(value)} по показаниям устройства с {@code recorded_at >= since}.
+     *
+     * @param deviceId идентификатор устройства
+     * @param since начало периода
+     * @return среднее значение или пустой результат, если показаний нет
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
     @Override
     public OptionalDouble averageValueSince(UUID deviceId, Instant since) {
         Double average = databaseUtils.query(
