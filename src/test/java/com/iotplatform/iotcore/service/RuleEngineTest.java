@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -78,6 +79,21 @@ class RuleEngineTest {
 
         assertEquals(1, outOfRange.size());
         assertTrue(outOfRange.containsKey("rule_" + rule.id()));
+    }
+
+    @Test
+    void notificationRuleIsEvaluatedAsSoft() {
+        var rule = new RuleEntity(UUID.randomUUID(), TEMPERATURE, RuleOperator.LE, 30.0, false);
+        var repository = new InMemoryRuleRepository() {
+            @Override
+            public List<RuleEntity> findForEvaluation(UUID id) {
+                assertEquals(deviceId, id);
+                return List.of(rule);
+            }
+        };
+
+        assertTrue(new RuleEngine(repository).check(telemetry(TEMPERATURE, 35))
+                .containsKey("rule_" + rule.id()));
     }
 
     @Test

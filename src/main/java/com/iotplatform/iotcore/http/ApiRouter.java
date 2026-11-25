@@ -36,6 +36,7 @@ final class ApiRouter {
     private final TelemetryController telemetryController;
     private final NotificationController notificationController;
     private final RuleController ruleController;
+    private final NotificationDataApi notificationData;
 
 
     ApiRouter(DeviceController deviceController,
@@ -43,6 +44,13 @@ final class ApiRouter {
               TelemetryController telemetryController,
               NotificationController notificationController,
               RuleController ruleController) {
+        this(deviceController, userController, telemetryController, notificationController, ruleController, null);
+    }
+
+    ApiRouter(DeviceController deviceController, UserController userController,
+              TelemetryController telemetryController, NotificationController notificationController,
+              RuleController ruleController, NotificationDataApi notificationData) {
+        this.notificationData = notificationData;
         this.ruleController = ruleController;
         this.deviceController = deviceController;
         this.userController = userController;
@@ -51,6 +59,18 @@ final class ApiRouter {
     }
 
     Response handle(String method, String uri, byte[] body) {
+        return handle(method, uri, body, null);
+    }
+
+    Response handle(String method, String uri, byte[] body, String authorization) {
+        if (notificationData != null && NotificationDataApi.matches(uri)) {
+            try {
+                return notificationData.handle(method, uri, body, authorization);
+            } catch (RuntimeException e) {
+                log.error("Internal notification data request failed", e);
+                return json(500, Map.of("error", "Внутренняя ошибка сервера"));
+            }
+        }
         long start = System.nanoTime();
         Response response = route(method, uri, body);
         long ms = (System.nanoTime() - start) / 1_000_000;
@@ -266,7 +286,7 @@ final class ApiRouter {
         return value;
     }
 
-    private Response json(int status, Object value) {
+    static Response json(int status, Object value) {
         try {
             return new Response(status, Json.MAPPER.writeValueAsBytes(value));
         } catch (JsonProcessingException e) {

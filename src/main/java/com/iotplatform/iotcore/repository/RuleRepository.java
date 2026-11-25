@@ -59,4 +59,8 @@ public interface RuleRepository {
      * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
      */
     List<RuleEntity> findByDeviceId(UUID deviceId);   // все правила устройства
+
+    default List<RuleEntity> findForEvaluation(UUID deviceId) {
+        return findByDeviceId(deviceId);
+    }
 }

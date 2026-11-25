@@ -37,7 +37,7 @@ public class IotCoreMain {
         log.info("Database schema initialized");
         DeviceRepository deviceRepository = new PostgresDeviceRepository(databaseUtils);
         UserRepository userRepository = new PostgresUserRepository(databaseUtils);
-        TelemetryRepository telemetryRepository = new PostgresTelemetryRepository(databaseUtils);
+        PostgresTelemetryRepository telemetryRepository = new PostgresTelemetryRepository(databaseUtils);
         RuleRepository ruleRepository = new PostgresRuleRepository(databaseUtils);
         RuleEngine ruleEngine = new RuleEngine(ruleRepository);
 
@@ -56,7 +56,8 @@ public class IotCoreMain {
                 new UserController(userService, notificationService),
                 new TelemetryController(telemetryService, alertService),
                 new NotificationController(notificationService),
-                new RuleController(ruleService));
+                new RuleController(ruleService), System.getenv("NOTIFICATION_DATA_TOKEN"),
+                telemetryRepository, new PostgresDeviceLimitsRepository(databaseUtils));
         api.start();
     }
 }

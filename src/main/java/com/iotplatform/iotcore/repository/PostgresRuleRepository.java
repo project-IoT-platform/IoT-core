@@ -112,6 +112,17 @@ public class PostgresRuleRepository implements RuleRepository {
                 PostgresRuleRepository::mapRow, deviceId);
     }
 
+    @Override
+    public List<RuleEntity> findForEvaluation(UUID deviceId) {
+        return databaseUtils.query("""
+                SELECT r.id, r.telemetry_type, r.operator, r.value, r.is_strict
+                FROM rule r JOIN device_to_rule dr ON dr.rule_id = r.id WHERE dr.device_id = ?
+                UNION ALL
+                SELECT id, telemetry_type, operator, value, FALSE
+                FROM device_notification_rule WHERE device_id = ?
+                """, PostgresRuleRepository::mapRow, deviceId, deviceId);
+    }
+
     private static RuleEntity mapRow(ResultSet rs) throws DatabaseException {
         try {
             return new RuleEntity(

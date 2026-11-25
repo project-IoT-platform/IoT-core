@@ -217,6 +217,19 @@ class PostgresRepositoriesTest {
     }
 
     @Test
+    void summarizesOnlyRequestedTelemetryType() {
+        db.rowsToReturn = List.of(Map.of("average", 12.5, "count", 2L));
+        UUID deviceId = UUID.randomUUID();
+        short type = 3;
+
+        var summary = new PostgresTelemetryRepository(db).summarizeSince(deviceId, Instant.EPOCH, type);
+
+        assertEquals(new PostgresTelemetryRepository.Average(12.5, 2), summary);
+        assertTrue(db.queries.getFirst().sql().contains("AND t.telemetry_type = ?"));
+        assertEquals(List.of(Instant.EPOCH, type, deviceId), db.queries.getFirst().params());
+    }
+
+    @Test
     void averageOfNoRowsIsEmpty() {
         Map<String, Object> row = new HashMap<>();
         row.put("avg", null);   // AVG по пустому набору в SQL даёт NULL

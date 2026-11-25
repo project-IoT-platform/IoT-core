@@ -71,3 +71,15 @@ CREATE TABLE IF NOT EXISTS device_to_rule (
     device_id UUID NOT NULL REFERENCES device(id) ON DELETE CASCADE,
     UNIQUE (rule_id, device_id)
 );
+
+ALTER TABLE device ADD COLUMN IF NOT EXISTS battery_limit SMALLINT
+    CHECK (battery_limit BETWEEN 0 AND 100);
+
+CREATE TABLE IF NOT EXISTS device_notification_rule (
+    id UUID PRIMARY KEY,
+    device_id UUID NOT NULL REFERENCES device(id) ON DELETE CASCADE,
+    telemetry_type SMALLINT NOT NULL,
+    operator rule_operator NOT NULL,
+    value DOUBLE PRECISION NOT NULL,
+    UNIQUE (device_id, telemetry_type, operator)
+);

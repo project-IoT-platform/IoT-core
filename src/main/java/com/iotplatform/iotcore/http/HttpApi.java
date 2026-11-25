@@ -1,6 +1,8 @@
 package com.iotplatform.iotcore.http;
 
 import com.iotplatform.iotcore.controller.*;
+import com.iotplatform.iotcore.repository.PostgresDeviceLimitsRepository;
+import com.iotplatform.iotcore.repository.PostgresTelemetryRepository;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -48,9 +50,21 @@ public class HttpApi {
                    TelemetryController telemetryController,
                    NotificationController notificationController,
                    RuleController ruleController) {
+        this(port, new ApiRouter(deviceController, userController, telemetryController,
+                notificationController, ruleController));
+    }
+
+    public HttpApi(int port, DeviceController deviceController, UserController userController,
+                   TelemetryController telemetryController, NotificationController notificationController,
+                   RuleController ruleController, String notificationToken,
+                   PostgresTelemetryRepository telemetry, PostgresDeviceLimitsRepository limits) {
+        this(port, new ApiRouter(deviceController, userController, telemetryController, notificationController,
+                ruleController, new NotificationDataApi(notificationToken, telemetry, limits)));
+    }
+
+    private HttpApi(int port, ApiRouter router) {
         this.port = port;
-        this.router = new ApiRouter(deviceController, userController,
-                telemetryController, notificationController, ruleController);
+        this.router = router;
     }
 
     /**

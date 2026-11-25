@@ -1,6 +1,8 @@
 package com.iotplatform.iotcore.repository;
 
 import com.iotplatform.iotcore.db.DatabaseUtils;
+import com.iotplatform.iotcore.db.RowMapper;
+import com.iotplatform.iotcore.exception.DeviceNotFoundException;
 import com.iotplatform.iotcore.entity.TelemetryEntity;
 
 import java.time.Instant;
@@ -60,5 +62,21 @@ public class PostgresTelemetryRepository implements TelemetryRepository {
             return OptionalDouble.empty();
         }
         return OptionalDouble.of(average);
+    }
+    public record Average(Double average, long count) {}
+
+    public Average summarizeSince(UUID deviceId, Instant since, Short type) {
+        String select = """
+                SELECT AVG(t.value) AS average, COUNT(t.id) AS count
+                FROM device d LEFT JOIN telemetry t ON t.device_id = d.id AND t.recorded_at >= ?
+                """;
+        String device = " WHERE d.id = ? GROUP BY d.id";
+        RowMapper<Average> mapper = rs ->
+                new Average(rs.getObject("average", Double.class), rs.getLong("count"));
+        var rows = type == null
+                ? databaseUtils.query(select + device, mapper, since, deviceId)
+                : databaseUtils.query(select + " AND t.telemetry_type = ?" + device, mapper, since, type, deviceId);
+        if (rows.isEmpty()) throw new DeviceNotFoundException(deviceId);
+        return rows.getFirst();
     }
 }

@@ -36,7 +36,8 @@ final class ApiHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
         byte[] body = new byte[request.content().readableBytes()];
         request.content().readBytes(body);
 
-        ApiRouter.Response response = router.handle(request.method().name(), request.uri(), body);
+        ApiRouter.Response response = router.handle(request.method().name(), request.uri(), body,
+                request.headers().get(HttpHeaderNames.AUTHORIZATION));
         send(ctx, request, response, HttpUtil.isKeepAlive(request));
     }
 
@@ -50,6 +51,9 @@ final class ApiHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
         if (response.body() != null) {
             httpResponse.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8");
+        }
+        if (response.status() == 401) {
+            httpResponse.headers().set(HttpHeaderNames.WWW_AUTHENTICATE, "Bearer");
         }
         if (response.status() != 204) {
             httpResponse.headers().set(HttpHeaderNames.CONTENT_LENGTH, content.readableBytes());

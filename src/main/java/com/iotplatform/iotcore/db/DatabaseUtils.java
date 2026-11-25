@@ -73,14 +73,17 @@ public class DatabaseUtils {
      * @throws DatabaseException если запрос не выполнился
      */
     public int update(String sql, Object... params) throws DatabaseException {
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-
-            setParams(ps, params);
-
-            return ps.executeUpdate();
+        try (Connection conn = getConnection()) {
+            return update(conn, sql, params);
         } catch (SQLException e) {
             throw new DatabaseException("Ошибка запроса: " + sql, e);
+        }
+    }
+
+    public int update(Connection conn, String sql, Object... params) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            setParams(ps, params);
+            return ps.executeUpdate();
         }
     }
 
@@ -95,11 +98,17 @@ public class DatabaseUtils {
      * @throws DatabaseException если запрос не выполнился
      */
     public <T> List<T> query(String sql, RowMapper<T> mapper, Object... params) throws DatabaseException { // преобразование набора строки с "дырками" в SQL-запрос
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection conn = getConnection()) {
+            return query(conn, sql, mapper, params);
+        } catch (SQLException e) {
+            throw new DatabaseException("ошибка SQL-запроса", e);
+        }
+    }
 
+    public <T> List<T> query(Connection conn, String sql, RowMapper<T> mapper, Object... params)
+            throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
             setParams(ps, params);
-
             try (ResultSet rs = ps.executeQuery()) {
                 List<T> result = new ArrayList<>();
                 while (rs.next()) {
@@ -107,8 +116,6 @@ public class DatabaseUtils {
                 }
                 return result;
             }
-        } catch (SQLException e) {
-            throw new DatabaseException("ошибка SQL-запроса", e);
         }
     }
 

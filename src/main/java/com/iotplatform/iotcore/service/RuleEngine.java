@@ -41,7 +41,7 @@ public class RuleEngine {
         Map<String, String> strictErrors = new LinkedHashMap<>();
         Map<String, String> outOfRange = new LinkedHashMap<>();
 
-        for (RuleEntity rule : rules.findByDeviceId(t.deviceId())) {
+        for (RuleEntity rule : rules.findForEvaluation(t.deviceId())) {
             if (!rule.telemetryType().equals(t.telemetryType())) continue;
             if (rule.operator().test(t.value(), rule.value())) continue;   // правило выполнено
 
