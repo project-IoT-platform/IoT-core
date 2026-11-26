@@ -11,5 +11,14 @@ services:
     volumes:
       - iot-db-data:/var/lib/postgresql/data
 
+
+  rabbitmq:
+    image: rabbitmq:4.1
+    ports:
+      - "127.0.0.1:5672:5672"
+    volumes:
+      - iot-broker-data:/var/lib/rabbitmq
+
 volumes:
   iot-db-data:
+  iot-broker-data:

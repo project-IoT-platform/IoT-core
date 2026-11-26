@@ -6,8 +6,8 @@ import com.iotplatform.iotcore.check.TelemetryCheckResult;
 import com.iotplatform.iotcore.dto.DeviceDto;
 import com.iotplatform.iotcore.dto.TelemetryDto;
 import com.iotplatform.iotcore.dto.UserResponse;
+
 import com.iotplatform.iotcore.exception.DeviceNotFoundException;
-import com.iotplatform.iotcore.exception.UserNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.http.Json;
 import com.iotplatform.iotcore.model.DeviceState;
@@ -19,65 +19,81 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.function.BiConsumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Связь IoT Core с отдельным сервисом уведомлений (notification-service) по HTTP/JSON.
- * Класс только отправляет события и запросы в другой сервис. Проверки на норму делает IoT Core (AlertService),
- * сюда приходят уже готовые результаты: battery-low и telemetry-alert.
- */
+/** Формирует события для outbox и выполняет синхронные HTTP-запросы статуса и настроек. */
 public class NotificationService {
-    private static final System.Logger LOG = System.getLogger(NotificationService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
+    /**
+     * Общие значения нормы и допустимого отклонения.
+     *
+     * @param norm норма
+     * @param deviation допустимое отклонение
+     */
     public record Settings(Double norm, Double deviation) {}
 
-    /** Граница нормы одного типа телеметрии. null = не задана / не менять. */
-    public record TelemetryLimitDto(Short telemetryType, Double lowerBound, Double upperBound) {}
-
-    /** Лимиты устройства: нижняя граница заряда и границы телеметрии. */
-    public record DeviceLimits(Integer batteryLowerBound, List<TelemetryLimitDto> telemetry) {}
-
-    /** НОВОЕ: как часто слать уведомления по каналам, в секундах. 0 = сразу. */
-    public record DeliveryPrefs(Integer emailIntervalSeconds, Integer telegramIntervalSeconds) {}
-
+    private final BiConsumer<String, Object> events;
     private final String baseUrl;   // например http://localhost:8081
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
             .build();
 
-    public NotificationService(String baseUrl) {
+    public NotificationService(String baseUrl, BiConsumer<String, Object> events) {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
+        this.events = Objects.requireNonNull(events);
     }
 
-    // ---- события: отправляем в фоне и не ждём ответа, чтобы запрос к IoT Core не тормозил ----
-
-    /** Новое устройство прошло проверку и сохранено: письмо о регистрации устройства. */
+    /**
+     * Сообщает сервису уведомлений, что устройство зарегистрировано.
+     *
+     * @param device данные устройства
+     */
     public void notifyDeviceRegistered(DeviceDto device) {
-        sendEvent("/events/device-registered", device);
+        events.accept("device-registered", device);
     }
 
-    /** Новый пользователь сохранён: письмо с его id. */
+    /**
+     * Сообщает сервису уведомлений о новом пользователе, чтобы тот отправил письмо с его id
+     *.
+     *
+     * @param user сохранённый пользователь
+     */
     public void notifyUserRegistered(UserResponse user) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("userId", user.id());
         body.put("username", user.username());
         body.put("email", user.email());
-        sendEvent("/events/user-registered", body);
+        events.accept("user-registered", body);
     }
 
-    /** Заряд ниже нормы (результат проверки заряда). */
+    /**
+     * Сообщает о заряде ниже нормы.
+     *
+     * @param deviceId идентификатор устройства
+     * @param r результат проверки заряда
+     */
     public void batteryLow(UUID deviceId, BatteryCheckResult r) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("deviceId", deviceId);
         body.put("batteryLevel", r.batteryLevel());
         body.put("belowBy", r.belowBy());
         body.put("lowerBound", r.lowerBound());
-        sendEvent("/events/battery-low", body);
+        events.accept("battery-low", body);
     }
 
-    /** Показание вне нормы (результат проверки телеметрии). */
+    /**
+     * Сообщает о показании вне нормы.
+     * Если в результате проверки нет значения, берётся значение из показания.
+     *
+     * @param t показание
+     * @param r результат проверки на норму
+     */
     public void telemetryAlert(TelemetryDto t, TelemetryCheckResult r) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("deviceId", t.deviceId());
@@ -87,18 +103,24 @@ public class NotificationService {
         body.put("deviation", r.deviation());
         body.put("lowerBound", r.lowerBound());
         body.put("upperBound", r.upperBound());
-        sendEvent("/events/telemetry-alert", body);
+        events.accept("telemetry-alert", body);
     }
 
-    // ---- запросы, на которые нужен ответ ----
-
-    /** Просит сервис уведомлений отправить статус владельцу и возвращает состояние устройства. */
+    /**
+     * Просит сервис уведомлений отправить владельцу статус устройства.
+     *
+     * @param deviceId идентификатор устройства
+     * @return состояние устройства, которое сообщил сервис уведомлений
+     * @throws DeviceNotFoundException если сервис уведомлений ответил 404
+     * @throws UnsupportedOperationException если сервис недоступен, ответил не 200 или прислал некорректное состояние
+     */
     public DeviceState sendDeviceStatus(UUID deviceId) {
         HttpResponse<String> r = call(request("/devices/" + deviceId + "/status")
                 .POST(HttpRequest.BodyPublishers.noBody()).build());
         if (r.statusCode() == 404) throw new DeviceNotFoundException(deviceId);
         if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
         Map<String, String> answer = parse(r.body(), new TypeReference<Map<String, String>>() {});
+        // ИСПРАВЛЕНО: без поля state или с неизвестным значением раньше был NPE/IllegalArgumentException -> 500
         if (answer == null || answer.get("state") == null) throw unavailable("не прислал state");
         try {
             return DeviceState.valueOf(answer.get("state"));
@@ -107,64 +129,27 @@ public class NotificationService {
         }
     }
 
-    /** Текущие лимиты устройства (GET /devices/{id}/limits в сервисе уведомлений). */
-    public DeviceLimits getDeviceLimits(UUID deviceId) {
-        HttpResponse<String> r = call(request("/devices/" + deviceId + "/limits").GET().build());
-        if (r.statusCode() == 404) throw new DeviceNotFoundException(deviceId);
-        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
-        return parse(r.body(), new TypeReference<DeviceLimits>() {});
-    }
-
-    /** Сохраняет лимиты устройства (PUT /devices/{id}/limits) и возвращает актуальные значения. */
-    public DeviceLimits updateDeviceLimits(UUID deviceId, DeviceLimits limits) {
-        String json;
-        try {
-            json = Json.MAPPER.writeValueAsString(limits);
-        } catch (IOException e) {
-            throw new IllegalArgumentException("не удалось собрать JSON", e);
-        }
-        HttpResponse<String> r = call(request("/devices/" + deviceId + "/limits")
-                .PUT(HttpRequest.BodyPublishers.ofString(json)).build());
-        if (r.statusCode() == 404) throw new DeviceNotFoundException(deviceId);
-        if (r.statusCode() == 400) {
-            throw new ValidationException(parse(r.body(), new TypeReference<Map<String, String>>() {}));
-        }
-        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
-        return parse(r.body(), new TypeReference<DeviceLimits>() {});
-    }
-
-    /** НОВОЕ: настройки частоты уведомлений пользователя (GET /users/{id}/notification-preferences). */
-    public DeliveryPrefs getDeliveryPrefs(UUID userId) {
-        HttpResponse<String> r = call(request("/users/" + userId + "/notification-preferences").GET().build());
-        if (r.statusCode() == 404) throw new UserNotFoundException(userId);
-        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
-        return parse(r.body(), new TypeReference<DeliveryPrefs>() {});
-    }
-
-    /** НОВОЕ: сохраняет частоту (PUT). Поле null = не менять. Возвращает актуальные значения. */
-    public DeliveryPrefs updateDeliveryPrefs(UUID userId, DeliveryPrefs prefs) {
-        String json;
-        try {
-            json = Json.MAPPER.writeValueAsString(prefs);
-        } catch (IOException e) {
-            throw new IllegalArgumentException("не удалось собрать JSON", e);
-        }
-        HttpResponse<String> r = call(request("/users/" + userId + "/notification-preferences")
-                .PUT(HttpRequest.BodyPublishers.ofString(json)).build());
-        if (r.statusCode() == 404) throw new UserNotFoundException(userId);
-        if (r.statusCode() == 400) {
-            throw new ValidationException(parse(r.body(), new TypeReference<Map<String, String>>() {}));
-        }
-        if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
-        return parse(r.body(), new TypeReference<DeliveryPrefs>() {});
-    }
-
+    /**
+     * Запрашивает общие значения нормы и отклонения.
+     *
+     * @return текущие настройки
+     * @throws UnsupportedOperationException если сервис недоступен, ответил не 200 или прислал непонятный ответ
+     */
     public Settings getDefaults() {
         HttpResponse<String> r = call(request("/settings").GET().build());
         if (r.statusCode() != 200) throw unavailable("ответил " + r.statusCode());
         return parse(r.body(), new TypeReference<Settings>() {});
     }
 
+    /**
+     * Отправляет новые общие значения нормы и отклонения.
+     *
+     * @param settings новые значения
+     * @return настройки после изменения
+     * @throws ValidationException если сервис уведомлений ответил 400 (ошибки берутся из его ответа)
+     * @throws IllegalArgumentException если настройки не удалось превратить в JSON
+     * @throws UnsupportedOperationException если сервис недоступен, ответил иначе чем 200 или 400 или прислал непонятный ответ
+     */
     public Settings updateDefaults(Settings settings) {
         String json;
         try {
@@ -180,6 +165,26 @@ public class NotificationService {
         return parse(r.body(), new TypeReference<Settings>() {});
     }
 
+    public void sendPasswordReset(String email, String token) {
+        String secret = System.getenv("NOTIFICATION_DATA_TOKEN");
+        if (secret == null || secret.isBlank()) throw unavailable("не задан NOTIFICATION_DATA_TOKEN");
+        String frontend = System.getenv().getOrDefault("IOT_FRONTEND_URL", "http://127.0.0.1:3001/");
+        URI frontendUri = URI.create(frontend);
+        if (frontendUri.getHost() == null || frontendUri.getFragment() != null
+                || !("http".equals(frontendUri.getScheme()) || "https".equals(frontendUri.getScheme()))) {
+            throw new IllegalStateException("Некорректный IOT_FRONTEND_URL");
+        }
+        try {
+            String json = Json.MAPPER.writeValueAsString(Map.of("email", email, "link", frontend + "#reset=" + token));
+            HttpResponse<String> result = call(request("/internal/password-reset-mail")
+                    .header("Authorization", "Bearer " + secret)
+                    .POST(HttpRequest.BodyPublishers.ofString(json)).build());
+            if (result.statusCode() != 204) throw unavailable("ответил " + result.statusCode());
+        } catch (IOException e) {
+            throw new IllegalStateException("Не удалось собрать письмо восстановления", e);
+        }
+    }
+
     // ---- внутренние помощники ----
 
     private HttpRequest.Builder request(String path) {
@@ -188,35 +193,11 @@ public class NotificationService {
                 .header("Content-Type", "application/json; charset=utf-8");
     }
 
-    private void sendEvent(String path, Object body) {
-        try {
-            String json = Json.MAPPER.writeValueAsString(body);
-            LOG.log(System.Logger.Level.INFO, "-> сервис уведомлений: POST " + path + " " + json);
-            http.sendAsync(request(path).POST(HttpRequest.BodyPublishers.ofString(json)).build(),
-                            HttpResponse.BodyHandlers.ofString())
-                    .whenComplete((resp, err) -> {
-                        if (err != null) {
-                            // одной строкой, без стектрейса: «сервис выключен» — не ошибка в нашем коде
-                            Throwable cause = err.getCause() != null ? err.getCause() : err;
-                            LOG.log(System.Logger.Level.ERROR, "Сервис уведомлений недоступен (" + baseUrl + "), событие "
-                                    + path + " не доставлено: " + cause.getClass().getSimpleName()
-                                    + (cause.getMessage() != null ? " " + cause.getMessage() : ""));
-                        } else if (resp.statusCode() >= 300) {
-                            LOG.log(System.Logger.Level.ERROR,
-                                    "Сервис уведомлений ответил " + resp.statusCode() + " на " + path + ": " + resp.body());
-                        } else {
-                            LOG.log(System.Logger.Level.INFO, "<- сервис уведомлений: " + path + " " + resp.statusCode());
-                        }
-                    });
-        } catch (Exception e) {
-            LOG.log(System.Logger.Level.ERROR, "Не удалось отправить событие в сервис уведомлений", e);
-        }
-    }
-
     private HttpResponse<String> call(HttpRequest request) {
         try {
             return http.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
+            log.error("HTTP request to Notification Service failed: " + request.uri(), e);
             throw unavailable("недоступен");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

@@ -5,7 +5,19 @@ import com.iotplatform.iotcore.model.RuleOperator;
 import java.util.UUID;
 
 /**
- * Строка таблицы rule. strict = колонка is_strict.
- * telemetryType — Short (объект), потому что RuleEngine сравнивает его через equals с TelemetryDto.telemetryType().
+ * Правило проверки телеметрии, как оно хранится в БД: показание должно удовлетворять условию
+ * {@code значение <operator> value}.
+ *
+ * @param id идентификатор правила
+ * @param telemetryType тип телеметрии, к которому относится правило
+ * @param operator оператор сравнения
+ * @param value граничное значение
+ * @param strict {@code true}: при нарушении показание отклоняется; {@code false}: данные сохраняются, нарушение только фиксируется
  */
-public record RuleEntity(UUID id, Short telemetryType, RuleOperator operator, double value, boolean strict) {}
+public record RuleEntity(
+        UUID id,
+        Short telemetryType,
+        RuleOperator operator,
+        Double value,
+        boolean strict) {
+}

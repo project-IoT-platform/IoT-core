@@ -7,33 +7,32 @@ import java.util.List;
 import java.util.OptionalDouble;
 import java.util.UUID;
 
+/**
+ * Хранилище телеметрии.
+ */
 public interface TelemetryRepository {
-    void save(TelemetryEntity telemetry); // сохраняет запись
-    OptionalDouble averageValueSince(UUID deviceId, Instant since);
-
-    // ---- НОВОЕ: чтение телеметрии для интерфейса (плитки, график, среднее) ----
-
-    /** Одна точка графика. */
-    record Point(Instant time, double value) {}
-
-    /** Последнее показание одного типа (для плитки в карточке устройства). */
-    record Latest(short telemetryType, double value, Instant time) {}
-
-    /** Среднее по типу; average = null, если показаний за период нет. */
     record Average(Double average, long count) {}
 
-    /** Последнее показание каждого типа у устройства (по одному на тип, по возрастанию типа). */
-    default List<Latest> latestByType(UUID deviceId) {
-        throw new UnsupportedOperationException("latestByType");
-    }
+    List<TelemetryEntity> latestByDevice(UUID deviceId);
 
-    /** Последние limit точек типа (с момента since, если задан) в порядке возрастания времени. */
-    default List<Point> series(UUID deviceId, short telemetryType, Instant since, int limit) {
-        throw new UnsupportedOperationException("series");
-    }
+    List<TelemetryEntity> recentByType(UUID deviceId, short type, int limit);
 
-    /** Среднее значение указанного типа начиная с since (recorded_at >= since). */
-    default Average averageByType(UUID deviceId, short telemetryType, Instant since) {
-        throw new UnsupportedOperationException("averageByType");
-    }
+    Average averageByTypeSince(UUID deviceId, short type, Instant since);
+
+    /**
+     * Сохраняет запись телеметрии.
+     *
+     * @param telemetry запись
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
+    void save(TelemetryEntity telemetry); // сохраняет запись
+    /**
+     * Считает среднее значение показаний устройства начиная с момента {@code since} (включительно).
+     *
+     * @param deviceId идентификатор устройства
+     * @param since начало периода
+     * @return среднее значение или пустой результат, если показаний за период нет
+     * @throws com.iotplatform.iotcore.exception.DatabaseException если запрос к БД не выполнился
+     */
+    OptionalDouble averageValueSince(UUID deviceId, Instant since);
 }

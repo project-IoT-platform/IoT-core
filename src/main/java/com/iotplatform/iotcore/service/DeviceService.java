@@ -8,69 +8,94 @@ import com.iotplatform.iotcore.repository.DeviceRepository;
 import com.iotplatform.iotcore.repository.UserRepository;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+/**
+ * Бизнес-логика устройств: поиск, регистрация, обновление и удаление.
+ */
 public class DeviceService {
-    private static final System.Logger LOG = System.getLogger(DeviceService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(DeviceService.class);
 
     private final DeviceRepository devices;
     private final UserRepository users;
 
+    /**
+     * Создаёт сервис.
+     *
+     * @param devices хранилище устройств
+     * @param users хранилище пользователей (проверка владельца)
+     */
     public DeviceService(DeviceRepository devices, UserRepository users) {
         this.devices = devices;
         this.users = users;
     }
 
+    public List<DeviceDto> list(UUID owner, String search, Integer limit, int offset) {
+        return devices.findByOwner(owner, search, limit, offset).stream().map(this::toDto).toList();
+    }
+
+    /**
+     * Ищет устройство по id.
+     *
+     * @param id идентификатор устройства
+     * @return найденное устройство
+     * @throws DeviceNotFoundException если устройства нет
+     */
     public DeviceDto findById(UUID id) {
         return devices.findById(id).map(this::toDto)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
     }
 
-    public List<DeviceDto> findByUserId(UUID userId) {
-        return devices.findByUserId(userId).stream().map(this::toDto).toList();
-    }
-
-    public List<DeviceDto> findByUserId(UUID userId, int limit, int offset) {
-        return devices.findByUserId(userId, limit, offset).stream().map(this::toDto).toList();
-    }
-
-    /** НОВОЕ: поиск по названию, все совпадения (без пагинации). */
-    public List<DeviceDto> searchByName(UUID userId, String query) {
-        return devices.findByUserIdAndNameContaining(userId, query).stream().map(this::toDto).toList();
-    }
-
-    public Optional<DeviceDto> findByIdAndUserId(UUID id, UUID userId) {
-        return devices.findByIdAndUserId(id, userId).map(this::toDto);
-    }
-
+    /**
+     * Регистрирует устройство. Если устройство с таким id уже есть, оно обновляется, а время последних данных сохраняется.
+     *
+     * @param dto данные устройства
+     * @throws ValidationException если данные некорректны или указанного владельца нет
+     */
     public void register(DeviceDto dto) {
         dto.validate();
         checkUserExists(dto.getUserId());
         Instant lastDataTime = devices.findById(dto.getDeviceId())
                 .map(DeviceEntity::getLastDataTime).orElse(null);
         devices.save(toEntity(dto, lastDataTime));
-        LOG.log(System.Logger.Level.INFO, "Устройство " + dto.getDeviceId() + " («" + dto.getName() + "») сохранено");
+        log.info("Device {} saved (user {})", dto.getDeviceId(), dto.getUserId());
     }
 
+    /**
+     * Обновляет существующее устройство. Идентификатор берётся из аргумента {@code id}, а не из тела.
+     * Время последних данных не меняется.
+     *
+     * @param id идентификатор устройства
+     * @param dto новые данные
+     * @return сохранённое устройство
+     * @throws DeviceNotFoundException если устройства нет
+     * @throws ValidationException если данные некорректны или указанного владельца нет
+     */
     public DeviceDto update(UUID id, DeviceDto dto) {
         DeviceDto withId = dto.withDeviceId(id);
         withId.validate();
         checkUserExists(withId.getUserId());
         DeviceEntity existing = devices.findById(id)
                 .orElseThrow(() -> new DeviceNotFoundException(id));
-        DeviceDto saved = toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
-        LOG.log(System.Logger.Level.INFO, "Устройство " + id + " обновлено");
-        return saved;
+        log.info("Device {} updated", id);
+        return toDto(devices.save(toEntity(withId, existing.getLastDataTime())));
     }
 
+    /**
+     * Удаляет устройство.
+     *
+     * @param id идентификатор устройства
+     * @throws DeviceNotFoundException если устройства нет
+     */
     public void delete(UUID id) {
         if (!devices.deleteById(id)) {
             throw new DeviceNotFoundException(id);
         }
-        LOG.log(System.Logger.Level.INFO, "Устройство " + id + " удалено");
+        log.info("Device {} deleted", id);
     }
 
     private void checkUserExists(UUID userId) {

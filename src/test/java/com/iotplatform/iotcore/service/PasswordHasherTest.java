@@ -1,52 +1,56 @@
 package com.iotplatform.iotcore.service;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class PasswordHasherTest {
 
-    // Base64-строка, которая декодируется в 32 байта
-    private final String testPepper = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=";
-
-    @BeforeEach
-    void setUp() {
-        // Задаем "перец" для тестов напрямую
-        PasswordHasher.pepperForTests = testPepper;
-    }
-
-    @AfterEach
-    void tearDown() {
-        // Очищаем после каждого теста
-        PasswordHasher.pepperForTests = null;
+    @Test
+    void resultIsSaltPlusKey48Bytes() {
+        assertEquals(48, PasswordHasher.hash("password123").length);
     }
 
     @Test
-    void hashAndVerify_Success() {
-        String password = "mySuperSecretPassword";
+    void sameHashDiffersBetweenCallsBecauseOfSalt() {
+        byte[] first = PasswordHasher.hash("password123");
+        byte[] second = PasswordHasher.hash("password123");
 
-        byte[] hash = PasswordHasher.hash(password);
-
-        assertNotNull(hash);
-        assertEquals(16 + 32, hash.length); // 16 байт соли + 32 байта хеша
-        assertTrue(PasswordHasher.verify(password, hash), "Пароль должен совпадать");
+        assertFalse(Arrays.equals(first, second));
     }
 
     @Test
-    void verify_WrongPassword_ReturnsFalse() {
-        String password = "correctPassword";
-        String wrongPassword = "wrongPassword";
+    void saltPartDiffersBetweenCalls() {
+        byte[] first = Arrays.copyOfRange(PasswordHasher.hash("password123"), 0, 16);
+        byte[] second = Arrays.copyOfRange(PasswordHasher.hash("password123"), 0, 16);
 
-        byte[] hash = PasswordHasher.hash(password);
-
-        assertFalse(PasswordHasher.verify(wrongPassword, hash), "Неверный пароль не должен проходить");
+        assertFalse(Arrays.equals(first, second));
     }
 
     @Test
-    void verify_NullOrInvalidHash_ReturnsFalse() {
-        assertFalse(PasswordHasher.verify("pass", null));
-        assertFalse(PasswordHasher.verify("pass", new byte[10])); // Слишком короткий хеш
+    void hashDoesNotContainThePasswordInPlainText() {
+        byte[] password = "password123".getBytes(StandardCharsets.UTF_8);
+        byte[] hash = PasswordHasher.hash("password123");
+
+        assertFalse(Arrays.equals(password, hash));
+        assertFalse(new String(hash, StandardCharsets.ISO_8859_1).contains("password123"));
+    }
+
+    @Test
+    void differentPasswordsGiveDifferentKeyParts() {
+        byte[] first = Arrays.copyOfRange(PasswordHasher.hash("password123"), 16, 48);
+        byte[] second = Arrays.copyOfRange(PasswordHasher.hash("password124"), 16, 48);
+
+        assertFalse(Arrays.equals(first, second));
+    }
+
+    @Test
+    void longAndNonLatinPasswordsAreHashedToTheSameLength() {
+        assertEquals(48, PasswordHasher.hash("пароль-на-русском-очень-длинный-1234567890").length);
+        assertEquals(48, PasswordHasher.hash("x".repeat(500)).length);
     }
 }

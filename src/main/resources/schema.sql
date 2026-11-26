@@ -1,10 +1,10 @@
 DO $$
 BEGIN
-IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role') THEN
 CREATE TYPE role AS ENUM ('ADMIN', 'GUEST');
 END IF;
 
-IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'state') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'state') THEN
 CREATE TYPE state AS ENUM ('ON', 'OFF');
 END IF;
 END $$;
@@ -19,8 +19,9 @@ CREATE TABLE IF NOT EXISTS users (
                                      user_role role NOT NULL
 );
 
--- подтверждена ли регистрация (ID из письма введён)
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_confirmed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_hash BYTEA;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_sent TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS device (
                                       id UUID PRIMARY KEY,
@@ -31,15 +32,11 @@ CREATE TABLE IF NOT EXISTS device (
                                       manufacturer TEXT,
                                       device_state state NOT NULL,
                                       geolocation TEXT,
+                                      battery_notify_allowed BOOLEAN NOT NULL DEFAULT TRUE,
 
                                       CONSTRAINT device_user_id_fkey
                                       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     );
-
-ALTER TABLE device ADD COLUMN IF NOT EXISTS battery_notify_allowed BOOLEAN NOT NULL DEFAULT TRUE;
-
--- лимиты устройства: нижняя граница заряда и общие значения нормы
-CREATE TABLE IF NOT EXISTS rute (device_id UUID PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE, battery_limit INTEGER, norm DOUBLE PRECISION, deviation DOUBLE PRECISION);
 
 CREATE TABLE IF NOT EXISTS telemetry (
                                          id UUID PRIMARY KEY,
@@ -52,10 +49,6 @@ CREATE TABLE IF NOT EXISTS telemetry (
                                          FOREIGN KEY (device_id) REFERENCES device(id) ON DELETE CASCADE
     );
 
--- НОВОЕ: индекс под выборки телеметрии конкретного типа по времени (график, среднее, последнее значение)
-CREATE INDEX IF NOT EXISTS telemetry_device_type_time_idx
-    ON telemetry (device_id, telemetry_type, recorded_at DESC);
-
 CREATE TABLE IF NOT EXISTS telegram_chats (
                                               user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     chat_id BIGINT NOT NULL UNIQUE
@@ -63,7 +56,7 @@ CREATE TABLE IF NOT EXISTS telegram_chats (
 
 DO $$
 BEGIN
-IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rule_operator') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rule_operator') THEN
 CREATE TYPE rule_operator AS ENUM ('GE', 'LE', 'GT', 'LT', 'EQ', 'NE');
 END IF;
 END $$;
@@ -72,14 +65,9 @@ CREATE TABLE IF NOT EXISTS rule (
                                     id UUID PRIMARY KEY,
                                     telemetry_type SMALLINT NOT NULL,
                                     operator rule_operator NOT NULL,
-                                    value FLOAT NOT NULL
+                                    value FLOAT NOT NULL,
+                                    is_strict BOOLEAN NOT NULL DEFAULT TRUE
 );
-
--- is_strict = TRUE по умолчанию: правило отклоняет показание с HTTP 400 и в БД не пишется.
--- is_strict = FALSE: показание сохраняется (HTTP 202) и проверяется для уведомления.
-ALTER TABLE rule ADD COLUMN IF NOT EXISTS is_strict BOOLEAN NOT NULL DEFAULT TRUE;
--- На случай, если колонка уже была создана со старым DEFAULT FALSE:
-ALTER TABLE rule ALTER COLUMN is_strict SET DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS device_to_rule (
                                               id UUID PRIMARY KEY,
@@ -87,3 +75,19 @@ CREATE TABLE IF NOT EXISTS device_to_rule (
     device_id UUID NOT NULL REFERENCES device(id) ON DELETE CASCADE,
     UNIQUE (rule_id, device_id)
     );
+
+CREATE TABLE IF NOT EXISTS notification_defaults (id INT PRIMARY KEY, norm DOUBLE PRECISION NOT NULL, deviation DOUBLE PRECISION NOT NULL);
+INSERT INTO notification_defaults(id,norm,deviation) VALUES (1,25,5) ON CONFLICT(id) DO NOTHING;
+CREATE TABLE IF NOT EXISTS notification_preferences (user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, channel TEXT NOT NULL, interval_seconds INTEGER NOT NULL CHECK(interval_seconds>=0), PRIMARY KEY(user_id,channel));
+CREATE TABLE IF NOT EXISTS notification_buffer (id BIGSERIAL PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, channel TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), type TEXT NOT NULL, device_id UUID, device_name TEXT, event_time TIMESTAMPTZ NOT NULL, description TEXT, details TEXT NOT NULL, telegram_text TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS notification_buffer_group_idx ON notification_buffer(user_id,channel,created_at);
+CREATE INDEX IF NOT EXISTS notification_buffer_created_idx ON notification_buffer(created_at);
+
+ALTER TABLE device ADD COLUMN IF NOT EXISTS notification_battery_limit INTEGER CHECK(notification_battery_limit BETWEEN 0 AND 100);
+
+CREATE TABLE IF NOT EXISTS notification_outbox (
+                                                   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                                                   event_id UUID NOT NULL UNIQUE,
+                                                   event_type TEXT NOT NULL,
+                                                   envelope JSONB NOT NULL
+);

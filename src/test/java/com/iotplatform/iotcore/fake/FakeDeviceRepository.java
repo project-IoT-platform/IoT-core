@@ -4,19 +4,30 @@ import com.iotplatform.iotcore.entity.DeviceEntity;
 import com.iotplatform.iotcore.repository.DeviceRepository;
 
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
+/** Репозиторий устройств в памяти: ведёт себя как Postgres-версия, но без базы. */
 public class FakeDeviceRepository implements DeviceRepository {
     public final Map<UUID, DeviceEntity> rows = new HashMap<>();
     public int saveCalls = 0;
-    public final Set<UUID> batteryNotifyDisabled = new HashSet<>();
+
+    @Override
+    public List<DeviceEntity> findByOwner(UUID owner, String search, Integer limit, int offset) {
+        return rows.values().stream()
+                .filter(device -> owner.equals(device.getUserId()))
+                .filter(device -> device.getName().toLowerCase(Locale.ROOT).contains(search.toLowerCase(Locale.ROOT)))
+                .sorted(Comparator.comparing((DeviceEntity device) -> device.getName().toLowerCase(Locale.ROOT))
+                        .thenComparing(DeviceEntity::getId))
+                .skip(offset)
+                .limit(limit == null ? Long.MAX_VALUE : limit)
+                .toList();
+    }
 
     @Override
     public Optional<DeviceEntity> findById(UUID id) {
@@ -49,6 +60,9 @@ public class FakeDeviceRepository implements DeviceRepository {
         return 1;
     }
 
+    /** id устройств, у которых battery_notify_allowed = false (по умолчанию у всех true). */
+    public final java.util.Set<UUID> batteryNotifyDisabled = new java.util.HashSet<>();
+
     @Override
     public boolean disableBatteryNotification(UUID id) {
         return rows.containsKey(id) && batteryNotifyDisabled.add(id);
@@ -57,18 +71,5 @@ public class FakeDeviceRepository implements DeviceRepository {
     @Override
     public boolean enableBatteryNotification(UUID id) {
         return batteryNotifyDisabled.remove(id);
-    }
-
-    @Override
-    public List<DeviceEntity> findByUserId(UUID userId) {
-        return rows.values().stream()
-                .filter(d -> userId != null && userId.equals(d.getUserId()))
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public Optional<DeviceEntity> findByIdAndUserId(UUID id, UUID userId) {
-        return Optional.ofNullable(rows.get(id))
-                .filter(d -> userId != null && userId.equals(d.getUserId()));
     }
 }

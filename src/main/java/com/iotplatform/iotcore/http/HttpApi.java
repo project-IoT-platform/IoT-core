@@ -1,10 +1,6 @@
 package com.iotplatform.iotcore.http;
 
-import com.iotplatform.iotcore.controller.DeviceController;
-import com.iotplatform.iotcore.controller.NotificationController;
-import com.iotplatform.iotcore.controller.RuleController;
-import com.iotplatform.iotcore.controller.TelemetryController;
-import com.iotplatform.iotcore.controller.UserController;
+import com.iotplatform.iotcore.controller.*;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -12,20 +8,32 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.cors.CorsConfig;
 import io.netty.handler.codec.http.cors.CorsConfigBuilder;
 import io.netty.handler.codec.http.cors.CorsHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
-
+/**
+ * HTTP-сервер IoT Core на Netty: принимает запросы на порту, разбирает JSON и передаёт запрос роутеру,
+ * который вызывает нужный контроллер. Размер тела запроса ограничен 1 МБ.
+ */
 public class HttpApi {
+    private static final Logger log = LoggerFactory.getLogger(HttpApi.class);
+
+    private static final CorsConfig FRONTEND_CORS = CorsConfigBuilder
+            .forOrigins("http://localhost:3001", "http://127.0.0.1:3001")
+            .allowedRequestMethods(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE)
+            .allowedRequestHeaders(HttpHeaderNames.CONTENT_TYPE)
+            .build();
+
     private static final int MAX_BODY_BYTES = 1024 * 1024;
-    private static final String DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000";
 
     private final int port;
     private final ApiRouter router;
@@ -35,6 +43,16 @@ public class HttpApi {
     private EventExecutorGroup businessGroup;
     private Channel serverChannel;
 
+    /**
+     * Создаёт сервер (без запуска).
+     *
+     * @param port порт, который будет слушать сервер
+     * @param deviceController контроллер устройств
+     * @param userController контроллер пользователей
+     * @param telemetryController контроллер телеметрии
+     * @param notificationController контроллер уведомлений
+     * @param ruleController контроллер правил
+     */
     public HttpApi(int port,
                    DeviceController deviceController,
                    UserController userController,
@@ -46,25 +64,21 @@ public class HttpApi {
                 telemetryController, notificationController, ruleController);
     }
 
-    private static CorsConfig corsConfig() {
-        String[] origins = Arrays.stream(
-                        System.getenv().getOrDefault("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toArray(String[]::new);
-        return CorsConfigBuilder.forOrigins(origins)
-                .allowedRequestMethods(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT,
-                        HttpMethod.DELETE, HttpMethod.OPTIONS)
-                .allowedRequestHeaders("Content-Type")
-                .maxAge(3600)
-                .build();
+    /**
+     * Запускает сервер и регистрирует остановку при завершении JVM.
+     *
+     * @throws IllegalStateException если порт занят или сервер не удалось запустить (ресурсы при этом освобождаются)
+     */
+    public void setInternalNotifications(InternalNotificationApi internal) { router.setInternal(internal); }
+
+    public void setDatabase(com.iotplatform.iotcore.db.DatabaseUtils database) {
+        router.setDatabase(database);
     }
 
     public void start() {
         bossGroup = new NioEventLoopGroup(1);
         workerGroup = new NioEventLoopGroup();
         businessGroup = new DefaultEventExecutorGroup(16);
-        CorsConfig cors = corsConfig();
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
@@ -74,7 +88,7 @@ public class HttpApi {
                         protected void initChannel(SocketChannel ch) {
                             ch.pipeline().addLast(new HttpServerCodec());
                             ch.pipeline().addLast(new HttpObjectAggregator(MAX_BODY_BYTES));
-                            ch.pipeline().addLast(new CorsHandler(cors));
+                            ch.pipeline().addLast(businessGroup, new CorsHandler(FRONTEND_CORS));
                             ch.pipeline().addLast(businessGroup, new ApiHandler(router));
                         }
                     });
@@ -85,9 +99,12 @@ public class HttpApi {
             throw new IllegalStateException("Не удалось запустить HTTP-сервер на порту " + port, e);
         }
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
-        System.out.println("IoT Core запущен на порту " + port);
+        log.info("IoT Core started on port {}", port);
     }
 
+    /**
+     * Останавливает сервер: закрывает канал и завершает пулы потоков. Можно вызывать, даже если сервер не запускался.
+     */
     public void stop() {
         if (serverChannel != null) serverChannel.close();
         if (businessGroup != null) businessGroup.shutdownGracefully();

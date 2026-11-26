@@ -4,68 +4,157 @@ import com.iotplatform.iotcore.dto.TelemetryDto;
 import com.iotplatform.iotcore.entity.RuleEntity;
 import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.model.RuleOperator;
-import com.iotplatform.iotcore.repository.RuleRepository;
+import com.iotplatform.iotcore.testsupport.InMemoryRuleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@ExtendWith(MockitoExtension.class)
 class RuleEngineTest {
+    private static final short HUMIDITY = 2;
+    private static final short TEMPERATURE = 3;
 
-    @Mock
-    private RuleRepository ruleRepository;
-
-    @InjectMocks
-    private RuleEngine ruleEngine;
-
-    private UUID deviceId;
+    private final UUID deviceId = UUID.randomUUID();
+    private InMemoryRuleRepository rules;
+    private RuleEngine engine;
 
     @BeforeEach
     void setUp() {
-        deviceId = UUID.randomUUID();
+        rules = new InMemoryRuleRepository();
+        engine = new RuleEngine(rules);
+    }
+
+    // Создаёт правило и привязывает его к устройству; возвращает правило.
+    private RuleEntity addRule(short type, RuleOperator op, double limit, boolean strict) {
+        RuleEntity rule = rules.save(new RuleEntity(UUID.randomUUID(), type, op, limit, strict));
+        rules.attachToDevice(rule.id(), deviceId);
+        return rule;
+    }
+
+    private TelemetryDto telemetry(short type, double value) {
+        return new TelemetryDto(deviceId, Instant.now(), type, value);
     }
 
     @Test
-    void check_ValueInNorm_ReturnsEmptyMap() {
-        RuleEntity rule = new RuleEntity(UUID.randomUUID(), (short) 2, RuleOperator.LE, 30.0, false); // Меньше или равно 30
-        when(ruleRepository.findByDeviceId(deviceId)).thenReturn(List.of(rule));
-
-        TelemetryDto dto = new TelemetryDto(deviceId, Instant.now(), (short) 2, 25.0);
-        Map<String, String> result = ruleEngine.check(dto);
-
-        assertTrue(result.isEmpty(), "Нарушений быть не должно");
+    void noRulesGivesEmptyMap() {
+        assertTrue(engine.check(telemetry(HUMIDITY, 12345)).isEmpty());
     }
 
     @Test
-    void check_NonStrictViolation_ReturnsViolationMap() {
-        RuleEntity rule = new RuleEntity(UUID.randomUUID(), (short) 2, RuleOperator.LE, 30.0, false); // Нестрогое
-        when(ruleRepository.findByDeviceId(deviceId)).thenReturn(List.of(rule));
+    void strictViolationThrowsValidationException() {
+        RuleEntity rule = addRule(HUMIDITY, RuleOperator.LE, 100, true);
 
-        TelemetryDto dto = new TelemetryDto(deviceId, Instant.now(), (short) 2, 35.0);
-        Map<String, String> result = ruleEngine.check(dto);
+        ValidationException e = assertThrows(ValidationException.class,
+                () -> engine.check(telemetry(HUMIDITY, 120)));
 
-        assertFalse(result.isEmpty(), "Должно вернуть нарушение (но не выбросить ошибку)");
-        assertTrue(result.values().iterator().next().contains("35.0"));
+        assertEquals(1, e.getErrors().size());
+        assertTrue(e.getErrors().containsKey("rule_" + rule.id()));
     }
 
     @Test
-    void check_StrictViolation_ThrowsException() {
-        RuleEntity rule = new RuleEntity(UUID.randomUUID(), (short) 2, RuleOperator.LE, 30.0, true); // СТРОГОЕ
-        when(ruleRepository.findByDeviceId(deviceId)).thenReturn(List.of(rule));
+    void strictErrorNamesTheLimit() {
+        addRule(HUMIDITY, RuleOperator.LE, 100, true);
 
-        TelemetryDto dto = new TelemetryDto(deviceId, Instant.now(), (short) 2, 35.0);
+        ValidationException e = assertThrows(ValidationException.class,
+                () -> engine.check(telemetry(HUMIDITY, 120)));
 
-        assertThrows(ValidationException.class, () -> ruleEngine.check(dto), "Строгое правило должно выбрасывать ошибку");
+        String message = e.getErrors().values().iterator().next();
+        assertTrue(message.contains("120.0"), message);
+        assertTrue(message.contains("<= 100.0"), message);
+    }
+
+    @Test
+    void softViolationReturnsMapAndDoesNotThrow() {
+        RuleEntity rule = addRule(TEMPERATURE, RuleOperator.LE, 30, false);
+
+        Map<String, String> outOfRange = engine.check(telemetry(TEMPERATURE, 35));
+
+        assertEquals(1, outOfRange.size());
+        assertTrue(outOfRange.containsKey("rule_" + rule.id()));
+    }
+
+    @Test
+    void severalSoftViolationsAreAllReported() {
+        addRule(TEMPERATURE, RuleOperator.LE, 30, false);
+        addRule(TEMPERATURE, RuleOperator.LT, 20, false);
+
+        assertEquals(2, engine.check(telemetry(TEMPERATURE, 35)).size());
+    }
+
+    @Test
+    void whenStrictAndSoftAreViolatedOnlyStrictErrorIsThrown() {
+        RuleEntity strict = addRule(TEMPERATURE, RuleOperator.LE, 100, true);
+        RuleEntity soft = addRule(TEMPERATURE, RuleOperator.LE, 30, false);
+
+        ValidationException e = assertThrows(ValidationException.class,
+                () -> engine.check(telemetry(TEMPERATURE, 150)));
+
+        assertEquals(1, e.getErrors().size());
+        assertTrue(e.getErrors().containsKey("rule_" + strict.id()));
+        assertFalse(e.getErrors().containsKey("rule_" + soft.id()));
+    }
+
+    @Test
+    void softViolationIsReportedWhenStrictRuleIsSatisfied() {
+        addRule(TEMPERATURE, RuleOperator.LE, 100, true);
+        RuleEntity soft = addRule(TEMPERATURE, RuleOperator.LE, 30, false);
+
+        Map<String, String> outOfRange = engine.check(telemetry(TEMPERATURE, 35));
+
+        assertEquals(1, outOfRange.size());
+        assertTrue(outOfRange.containsKey("rule_" + soft.id()));
+    }
+
+    @Test
+    void ruleOfAnotherTelemetryTypeIsIgnored() {
+        addRule(HUMIDITY, RuleOperator.LE, 100, true);
+
+        assertTrue(engine.check(telemetry(TEMPERATURE, 500)).isEmpty());
+    }
+
+    @Test
+    void onlyRulesOfTheMatchingTypeAreApplied() {
+        addRule(HUMIDITY, RuleOperator.LE, 100, true);
+        RuleEntity temp = addRule(TEMPERATURE, RuleOperator.LE, 30, true);
+
+        ValidationException e = assertThrows(ValidationException.class,
+                () -> engine.check(telemetry(TEMPERATURE, 35)));
+
+        assertEquals(1, e.getErrors().size());
+        assertTrue(e.getErrors().containsKey("rule_" + temp.id()));
+    }
+
+    @Test
+    void valueExactlyOnTheBoundaryPasses() {
+        addRule(HUMIDITY, RuleOperator.LE, 100, true);
+        addRule(HUMIDITY, RuleOperator.GE, 0, true);
+
+        assertTrue(engine.check(telemetry(HUMIDITY, 100)).isEmpty());
+        assertTrue(engine.check(telemetry(HUMIDITY, 0)).isEmpty());
+    }
+
+    @Test
+    void valueJustOutsideTheBoundaryFails() {
+        addRule(HUMIDITY, RuleOperator.LE, 100, true);
+        addRule(HUMIDITY, RuleOperator.GE, 0, true);
+
+        assertThrows(ValidationException.class, () -> engine.check(telemetry(HUMIDITY, 100.01)));
+        assertThrows(ValidationException.class, () -> engine.check(telemetry(HUMIDITY, -0.01)));
+    }
+
+    @Test
+    void rulesOfAnotherDeviceAreNotApplied() {
+        UUID other = UUID.randomUUID();
+        RuleEntity rule = rules.save(new RuleEntity(UUID.randomUUID(), HUMIDITY, RuleOperator.LE, 100.0, true));
+        rules.attachToDevice(rule.id(), other);
+
+        assertTrue(engine.check(telemetry(HUMIDITY, 500)).isEmpty());
     }
 }

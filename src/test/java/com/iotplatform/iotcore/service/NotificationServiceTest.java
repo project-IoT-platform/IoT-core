@@ -61,7 +61,8 @@ class NotificationServiceTest {
         });
         server.start();
         // слэш в конце должен отрезаться конструктором
-        service = new NotificationService("http://127.0.0.1:" + server.getAddress().getPort() + "/");
+        service = new NotificationService("http://127.0.0.1:" + server.getAddress().getPort() + "/",
+                (type, payload) -> received.add(new Received(null, type, Json.MAPPER.valueToTree(payload).toString())));
     }
 
     @AfterEach
@@ -78,13 +79,12 @@ class NotificationServiceTest {
     // ---------- события ----------
 
     @Test
-    void deviceRegisteredEventIsPostedAsJson() throws Exception {
+    void deviceRegisteredEventHasDeviceDetails() throws Exception {
         UUID id = UUID.randomUUID();
         service.notifyDeviceRegistered(new DeviceDto(id, null, "Термометр", "Acme", 5, DeviceState.ON, null, null));
 
         Received r = next();
-        assertEquals("POST", r.method());
-        assertEquals("/events/device-registered", r.path());
+        assertEquals("device-registered", r.path());
         assertTrue(r.body().contains(id.toString()));
         assertTrue(r.body().contains("\"batteryLevel\":5"));
     }
@@ -94,7 +94,7 @@ class NotificationServiceTest {
         UUID id = UUID.randomUUID();
         service.notifyUserRegistered(new UserResponse(id, "vera", "v@x.ru", null, null, UserRole.GUEST));
         Received r = next();
-        assertEquals("/events/user-registered", r.path());
+        assertEquals("user-registered", r.path());
         Map<String, Object> body = Json.MAPPER.readValue(r.body(), new TypeReference<Map<String, Object>>() {});
         assertEquals(id.toString(), body.get("userId"));
         assertEquals("v@x.ru", body.get("email"));
@@ -106,7 +106,7 @@ class NotificationServiceTest {
         UUID id = UUID.randomUUID();
         service.batteryLow(id, new BatteryCheckResult(true, 12, 8, 20));
         Received r = next();
-        assertEquals("/events/battery-low", r.path());
+        assertEquals("battery-low", r.path());
         Map<String, Object> body = Json.MAPPER.readValue(r.body(), new TypeReference<Map<String, Object>>() {});
         assertEquals(id.toString(), body.get("deviceId"));
         assertEquals(12, body.get("batteryLevel"));
@@ -120,7 +120,7 @@ class NotificationServiceTest {
         service.telemetryAlert(new TelemetryDto(id, Instant.parse("2026-11-06T12:00:00Z"), (short) 1, 15.0),
                 new TelemetryCheckResult(true, 15.0, -3.0, 18.0, null));
         Received r = next();
-        assertEquals("/events/telemetry-alert", r.path());
+        assertEquals("telemetry-alert", r.path());
         Map<String, Object> body = Json.MAPPER.readValue(r.body(), new TypeReference<Map<String, Object>>() {});
         assertEquals("2026-11-06T12:00:00Z", body.get("time"));
         assertEquals(1, body.get("telemetryType"));
@@ -132,16 +132,10 @@ class NotificationServiceTest {
     }
 
     @Test
-    void eventDoesNotThrowWhenServiceIsDown() throws Exception {
-        NotificationService down = new NotificationService("http://127.0.0.1:" + freePort());
-        assertDoesNotThrow(() -> down.notifyDeviceRegistered(
-                new DeviceDto(UUID.randomUUID(), null, "n", "m", 5, DeviceState.ON, null, null)));
-    }
-
-    @Test
-    void eventDoesNotThrowWhenServiceAnswersError() {
-        answers.put("POST /events/device-registered", new Answer(500, "oops"));
-        assertDoesNotThrow(() -> service.notifyDeviceRegistered(
+    void outboxFailurePropagatesForRollback() {
+        NotificationService broken = new NotificationService("http://127.0.0.1:1",
+                (type, payload) -> { throw new IllegalStateException("outbox failure"); });
+        assertThrows(IllegalStateException.class, () -> broken.notifyDeviceRegistered(
                 new DeviceDto(UUID.randomUUID(), null, "n", "m", 5, DeviceState.ON, null, null)));
     }
 
@@ -193,7 +187,7 @@ class NotificationServiceTest {
 
     @Test
     void requestWhenServiceIsDownMeansUnavailable() throws Exception {
-        NotificationService down = new NotificationService("http://127.0.0.1:" + freePort());
+        NotificationService down = new NotificationService("http://127.0.0.1:" + freePort(), (type, body) -> { throw new AssertionError(type); });
         assertThrows(UnsupportedOperationException.class, () -> down.sendDeviceStatus(UUID.randomUUID()));
     }
 

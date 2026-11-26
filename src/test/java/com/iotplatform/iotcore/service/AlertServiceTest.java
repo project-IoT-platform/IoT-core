@@ -1,8 +1,6 @@
 package com.iotplatform.iotcore.service;
 
 import com.iotplatform.iotcore.check.BatteryCheckResult;
-import com.iotplatform.iotcore.check.StubBatteryChecker;
-import com.iotplatform.iotcore.check.StubTelemetryNormChecker;
 import com.iotplatform.iotcore.check.TelemetryCheckResult;
 import com.iotplatform.iotcore.dto.TelemetryDto;
 import com.iotplatform.iotcore.entity.DeviceEntity;
@@ -13,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -33,13 +32,6 @@ class AlertServiceTest {
             ? new BatteryCheckResult(true, level, LOWER_BOUND - level, LOWER_BOUND)
             : BatteryCheckResult.normal();
 
-    // проверка телеметрии: норма от 18 до 25
-    private final com.iotplatform.iotcore.check.TelemetryNormChecker norm = (id, type, v) -> {
-        if (v < 18) return new TelemetryCheckResult(true, v, v - 18, 18.0, 25.0);
-        if (v > 25) return new TelemetryCheckResult(true, v, v - 25, 18.0, 25.0);
-        return TelemetryCheckResult.normal();
-    };
-
     private AlertService alerts;
 
     @BeforeEach
@@ -48,7 +40,7 @@ class AlertServiceTest {
         notifications = new RecordingNotificationService();
         deviceId = UUID.randomUUID();
         devices.save(new DeviceEntity(deviceId, null, "n", null, 50, "m", DeviceState.ON, null));
-        alerts = new AlertService(norm, battery, devices, notifications);
+        alerts = new AlertService(battery, devices, notifications);
     }
 
     private TelemetryDto reading(double v) {
@@ -57,43 +49,44 @@ class AlertServiceTest {
 
     // ---------- телеметрия ----------
 
+    private static final Map<String, String> VIOLATION = Map.of("rule_1", "значение 30.0 нарушает правило: должно быть <= 25.0");
+
     @Test
-    void telemetryInNormSendsNothing() {
-        alerts.onTelemetry(reading(20));
+    void telemetryWithoutViolationsSendsNothing() {
+        alerts.onTelemetry(reading(20), Map.of());
+        alerts.onTelemetry(reading(20), null);
         assertTrue(notifications.telemetryAlerts.isEmpty());
     }
 
     @Test
-    void telemetryAboveNormIsSentWithPositiveDeviation() {
+    void telemetryWithViolationIsSent() {
         TelemetryDto t = reading(30);
-        alerts.onTelemetry(t);
+        alerts.onTelemetry(t, VIOLATION);
 
         assertEquals(1, notifications.telemetryAlerts.size());
         RecordingNotificationService.TelemetryEvent e = notifications.telemetryAlerts.get(0);
         assertSame(t, e.telemetry());
-        assertEquals(5.0, e.result().deviation());
-        assertEquals(25.0, e.result().upperBound());
-    }
-
-    @Test
-    void telemetryBelowNormIsSentWithNegativeDeviation() {
-        alerts.onTelemetry(reading(15));
-        assertEquals(-3.0, notifications.telemetryAlerts.get(0).result().deviation());
+        assertTrue(e.result().outOfNorm());
+        assertEquals(30.0, e.result().value());
     }
 
     @Test
     void telemetryAlertIsSentEveryTime() {
-        alerts.onTelemetry(reading(30));
-        alerts.onTelemetry(reading(31));
+        alerts.onTelemetry(reading(30), VIOLATION);
+        alerts.onTelemetry(reading(31), VIOLATION);
         assertEquals(2, notifications.telemetryAlerts.size());
     }
 
     @Test
-    void brokenTelemetryCheckDoesNotThrow() {
-        AlertService broken = new AlertService((id, type, v) -> { throw new IllegalStateException("бум"); },
-                battery, devices, notifications);
-        assertDoesNotThrow(() -> broken.onTelemetry(reading(30)));
-        assertTrue(notifications.telemetryAlerts.isEmpty());
+    void brokenTelemetryNotificationPropagates() {
+        RecordingNotificationService failing = new RecordingNotificationService() {
+            @Override
+            public void telemetryAlert(TelemetryDto t, TelemetryCheckResult r) {
+                throw new IllegalStateException("бум");
+            }
+        };
+        AlertService broken = new AlertService(battery, devices, failing);
+        assertThrows(IllegalStateException.class, () -> broken.onTelemetry(reading(30), VIOLATION));
     }
 
     // ---------- батарея: уведомление один раз ----------
@@ -142,18 +135,14 @@ class AlertServiceTest {
     }
 
     @Test
-    void brokenBatteryCheckDoesNotThrow() {
-        AlertService broken = new AlertService(norm, (id, level) -> { throw new IllegalStateException("бум"); },
+    void brokenBatteryCheckPropagates() {
+        AlertService broken = new AlertService((id, level) -> { throw new IllegalStateException("бум"); },
                 devices, notifications);
-        assertDoesNotThrow(() -> broken.onBattery(deviceId, 5));
+        assertThrows(IllegalStateException.class, () -> broken.onBattery(deviceId, 5));
     }
 
-    // ---------- заглушки тиммейта ----------
-
     @Test
-    void stubsAlwaysSayNormal() {
-        assertFalse(new StubTelemetryNormChecker().check(deviceId, (short) 1, 1e9).outOfNorm());
-        assertFalse(new StubBatteryChecker().check(deviceId, 0).low());
+    void normalResultsHaveNoViolationDetails() {
         assertEquals(new TelemetryCheckResult(false, null, null, null, null), TelemetryCheckResult.normal());
         assertEquals(new BatteryCheckResult(false, null, null, null), BatteryCheckResult.normal());
     }

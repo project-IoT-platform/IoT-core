@@ -11,7 +11,11 @@ import java.util.UUID;
 /** Репозиторий пользователей в памяти. */
 public class FakeUserRepository implements UserRepository {
     public final Map<UUID, UserEntity> rows = new HashMap<>();
-    public int saveCalls = 0; // Используется в тестах
+
+    @Override
+    public Optional<UserEntity> findByEmail(String email) {
+        return rows.values().stream().filter(user -> email.equals(user.getEmail())).findFirst();
+    }
 
     @Override
     public Optional<UserEntity> findById(UUID id) {
@@ -25,7 +29,6 @@ public class FakeUserRepository implements UserRepository {
 
     @Override
     public UserEntity save(UserEntity user) {
-        saveCalls++;
         rows.put(user.getId(), user);
         return user;
     }
@@ -37,22 +40,14 @@ public class FakeUserRepository implements UserRepository {
 
     @Override
     public boolean existsByEmail(String email) {
-        return rows.values().stream().anyMatch(u -> email.equalsIgnoreCase(u.getEmail()));
+        return rows.values().stream().anyMatch(u -> email.equals(u.getEmail()));
     }
 
     @Override
     public Optional<byte[]> findPasswordHashByEmail(String email) {
         return rows.values().stream()
-                .filter(u -> email.equalsIgnoreCase(u.getEmail()))
+                .filter(u -> email.equals(u.getEmail()))
                 .map(UserEntity::getPasswordHash)
-                .findFirst();
-    }
-
-    // ЭТОГО МЕТОДА НЕ ХВАТАЛО (он требует интерфейс)
-    @Override
-    public Optional<UserEntity> findByEmail(String email) {
-        return rows.values().stream()
-                .filter(u -> email.equalsIgnoreCase(u.getEmail()))
                 .findFirst();
     }
 }

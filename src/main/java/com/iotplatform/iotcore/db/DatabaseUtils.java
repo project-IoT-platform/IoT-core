@@ -9,19 +9,41 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-
+import java.util.function.Supplier;
+import java.time.Instant;
+import java.time.ZoneOffset;
+/**
+ * Простая обёртка над JDBC: открывает соединение на каждую операцию, подставляет параметры в SQL-запрос,
+ * выполняет запросы и применяет схему БД.
+ */
 public class DatabaseUtils {
+
+    private final ThreadLocal<Connection> current = new ThreadLocal<>();
 
     private final String url;
     private final String user;
     private final String password;
 
+    /**
+     * Создаёт объект с параметрами подключения.
+     *
+     * @param url JDBC-адрес базы
+     * @param user имя пользователя БД
+     * @param password пароль пользователя БД
+     */
     public DatabaseUtils(String url, String user, String password) {
         this.url = url;
         this.user = user;
         this.password = password;
     }
 
+    /**
+     * Создаёт объект по файлу настроек из classpath с ключами {@code db.url}, {@code db.user}, {@code db.password}.
+     *
+     * @param fileName путь к файлу в ресурсах, например {@code /db.properties}
+     * @return настроенный объект
+     * @throws RuntimeException если файл не найден или не прочитан
+     */
     public static DatabaseUtils fromProperties(String fileName) {
         Properties props = new Properties();
         try (InputStream in = DatabaseUtils.class.getResourceAsStream(fileName)) {
@@ -30,27 +52,36 @@ public class DatabaseUtils {
             throw new RuntimeException("Не удалось прочитать " + fileName + ": " + e);
         }
         return new DatabaseUtils(
-                props.getProperty("db.url"),
-                props.getProperty("db.user"),
-                props.getProperty("db.password"));
+                System.getenv().getOrDefault("DB_URL", props.getProperty("db.url")),
+                System.getenv().getOrDefault("DB_USER", props.getProperty("db.user")),
+                System.getenv().getOrDefault("DB_PASSWORD", props.getProperty("db.password")));
     }
+
+    /**
+     * Открывает новое соединение с БД. Закрывать его должен вызывающий код.
+     *
+     * @return новое соединение
+     * @throws SQLException если подключиться не удалось
+     */
 
     public Connection getConnection() throws SQLException {
         return DriverManager.getConnection(url, user, password);
     }
 
-    public int update(String sql, Object... params) throws DatabaseException {
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            for (int i = 0; i < params.length; i++) {
-                Object p = params[i];
-                if (p instanceof Enum<?> e) {
-                    ps.setObject(i + 1, e.name(), Types.OTHER);   // enum -> строка (работает и для varchar, и для enum-типа в Postgres)
-                } else {
-                    ps.setObject(i + 1, p);
-                }
-            }
+    /**
+     * Выполняет изменяющий запрос (INSERT, UPDATE, DELETE).
+     *
+     * @param sql SQL с символами {@code ?} вместо параметров
+     * @param params значения параметров; {@code Instant} преобразуется в UTC-время, {@code enum} в строку с его именем
+     * @return количество затронутых строк
+     * @throws DatabaseException если запрос не выполнился
+     */
+    public int update(String sql, Object... params) throws DatabaseException {
+        try (Connection standalone = standaloneConnection();
+             PreparedStatement ps = (standalone == null ? current.get() : standalone).prepareStatement(sql)) {
+
+            setParams(ps, params);
 
             return ps.executeUpdate();
         } catch (SQLException e) {
@@ -58,13 +89,21 @@ public class DatabaseUtils {
         }
     }
 
+    /**
+     * Выполняет SELECT и преобразует каждую строку результата в объект.
+     *
+     * @param sql SQL с символами {@code ?} вместо параметров
+     * @param mapper преобразователь строки результата в объект
+     * @param params значения параметров запроса
+     * @param <T> тип объектов результата
+     * @return список объектов в порядке строк результата (может быть пустым)
+     * @throws DatabaseException если запрос не выполнился
+     */
     public <T> List<T> query(String sql, RowMapper<T> mapper, Object... params) throws DatabaseException { // преобразование набора строки с "дырками" в SQL-запрос
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection standalone = standaloneConnection();
+             PreparedStatement ps = (standalone == null ? current.get() : standalone).prepareStatement(sql)) {
 
-            for (int i = 0; i < params.length; i++) {
-                ps.setObject(i + 1, params[i]);
-            }
+            setParams(ps, params);
 
             try (ResultSet rs = ps.executeQuery()) {
                 List<T> result = new ArrayList<>();
@@ -78,6 +117,51 @@ public class DatabaseUtils {
         }
     }
 
+    private Connection standaloneConnection() throws SQLException {
+        return current.get() == null ? getConnection() : null;
+    }
+
+    public <T> T transaction(Supplier<T> work) {
+        if (current.get() != null) return work.get();
+        try (Connection connection = getConnection()) {
+            connection.setAutoCommit(false);
+            current.set(connection);
+            try {
+                T result = work.get();
+                connection.commit();
+                return result;
+            } catch (SQLException | RuntimeException | Error failure) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackFailure) {
+                    failure.addSuppressed(rollbackFailure);
+                }
+                throw failure;
+            } finally {
+                current.remove();
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("Ошибка транзакции", e);
+        }
+    }
+
+    private void setParams(PreparedStatement ps, Object[] params) throws SQLException {
+        for (int i = 0; i < params.length; i++) {
+            Object p = params[i];
+            if (p instanceof Instant) {
+                p = ((Instant) p).atOffset(ZoneOffset.UTC);   // Instant -> OffsetDateTime
+            } else if (p instanceof Enum) {
+                p = ((Enum<?>) p).name();                      // enum -> строка с его именем
+            }
+            ps.setObject(i + 1, p);
+        }
+    }
+
+    /**
+     * Выполняет скрипт {@code /schema.sql} из ресурсов. Повторный запуск безопасен, если скрипт идемпотентен.
+     *
+     * @throws RuntimeException если скрипт не найден, не прочитан или выполнился с ошибкой
+     */
     public void initSchema() {
         String script;
         try (InputStream in = DatabaseUtils.class.getResourceAsStream("/schema.sql")) {

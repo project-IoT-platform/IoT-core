@@ -32,7 +32,7 @@ public class RecordingNotificationService extends NotificationService {
     public RuntimeException failWith;   // если задано, запросы бросают это исключение
 
     public RecordingNotificationService() {
-        super("http://localhost:1");   // адрес не используется
+        super("http://localhost:1", (type, body) -> { throw new AssertionError(type); });   // адрес не используется
     }
 
     @Override

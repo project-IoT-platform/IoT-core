@@ -6,8 +6,6 @@ import com.iotplatform.iotcore.controller.NotificationController;
 import com.iotplatform.iotcore.controller.RuleController;
 import com.iotplatform.iotcore.controller.TelemetryController;
 import com.iotplatform.iotcore.controller.UserController;
-import com.iotplatform.iotcore.check.StubBatteryChecker;
-import com.iotplatform.iotcore.check.StubTelemetryNormChecker;
 import com.iotplatform.iotcore.entity.DeviceEntity;
 import com.iotplatform.iotcore.entity.RuleEntity;
 import com.iotplatform.iotcore.exception.DatabaseException;
@@ -24,12 +22,8 @@ import com.iotplatform.iotcore.service.RuleEngine;
 import com.iotplatform.iotcore.service.RuleService;
 import com.iotplatform.iotcore.service.TelemetryService;
 import com.iotplatform.iotcore.service.UserService;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -38,7 +32,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 /** Маршрутизация и коды ответов: от «сырых» method/uri/body до статуса и JSON. */
 class ApiRouterTest {
@@ -48,21 +41,6 @@ class ApiRouterTest {
     private FakeRuleRepository rules;
     private RecordingNotificationService notifications;
     private ApiRouter router;
-
-    private static MockedStatic<System> mockedSystem;
-
-    @BeforeAll
-    static void beforeAll() {
-        // Подменяем System.getenv, чтобы PasswordHasher видел PASSWORD_PEPPER при тестах
-        mockedSystem = mockStatic(System.class, Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS));
-        mockedSystem.when(() -> System.getenv("PASSWORD_PEPPER"))
-                .thenReturn("dGVzdF9wZXBwZXJfc2VjcmV0X2tleV8zMl9ieXRlcyEhIQ=="); // Base64 от 32 байт
-    }
-
-    @AfterAll
-    static void afterAll() {
-        mockedSystem.close();
-    }
 
     @BeforeEach
     void setUp() {
@@ -75,19 +53,14 @@ class ApiRouterTest {
     }
 
     private ApiRouter routerWith(FakeDeviceRepository deviceRepo) {
-        AlertService alerts = new AlertService(new StubTelemetryNormChecker(), new StubBatteryChecker(),
+        AlertService alerts = new AlertService((id, level) -> com.iotplatform.iotcore.check.BatteryCheckResult.normal(),
                 deviceRepo, notifications);
-
-        // Создаем RuleService, который нужен для пятого контроллера
-        RuleService ruleService = new RuleService(rules, deviceRepo);
-
         return new ApiRouter(
                 new DeviceController(new DeviceService(deviceRepo, users), notifications, alerts),
                 new UserController(new UserService(users), notifications),
                 new TelemetryController(new TelemetryService(deviceRepo, telemetry, new RuleEngine(rules)), alerts),
                 new NotificationController(notifications),
-                new RuleController(ruleService) // 5-й аргумент, которого не хватало
-        );
+                new RuleController(new RuleService(rules, deviceRepo)));
     }
 
     private ApiRouter.Response call(String method, String uri, String body) {
@@ -97,6 +70,70 @@ class ApiRouterTest {
     private static Map<String, Object> json(ApiRouter.Response r) throws Exception {
         assertNotNull(r.body(), "ожидали JSON в ответе");
         return Json.MAPPER.readValue(r.body(), new TypeReference<Map<String, Object>>() {});
+    }
+
+    @Test
+    void createdDeviceAppearsInOwnerListAndSearch() throws Exception {
+        var owner = json(call("POST", "/api/users",
+                "{\"email\":\"owner@example.org\",\"password\":\"password123\"}")).get("id");
+        UUID id = UUID.randomUUID();
+        var created = call("POST", "/api/devices", """
+                {"deviceId":"%s","userId":"%s","name":"Room Sensor","state":"OFF"}
+                """.formatted(id, owner));
+        assertEquals(202, created.status());
+        var list = call("GET", "/api/devices?userId=" + owner + "&limit=11&offset=0", null);
+        assertEquals(200, list.status());
+        assertEquals(id.toString(), Json.MAPPER.readTree(list.body()).get(0).get("deviceId").asText());
+        assertEquals(1, Json.MAPPER.readTree(call("GET",
+                "/api/devices?userId=" + owner + "&search=ROOM+sensor", null).body()).size());
+        assertEquals(0, Json.MAPPER.readTree(call("GET",
+                "/api/devices?userId=" + UUID.randomUUID(), null).body()).size());
+        assertEquals(0, Json.MAPPER.readTree(call("GET",
+                "/api/devices?userId=" + owner + "&offset=1", null).body()).size());
+    }
+
+    @Test
+    void latestTelemetryReturnsNewestReadingPerType() throws Exception {
+        UUID id = existingDevice();
+        String path = "/api/devices/" + id + "/telemetry/latest";
+        assertEquals(0, Json.MAPPER.readTree(call("GET", path, null).body()).size());
+        for (int i : new int[]{2, 1, 3}) {
+            assertEquals(202, call("POST", "/api/telemetry", """
+                    {"deviceId":"%s","time":"2026-11-26T00:00:0%dZ","telemetryType":%d,"value":%d}
+                    """.formatted(id, i, i == 3 ? 2 : 1, i)).status());
+        }
+        var result = call("GET", path, null);
+        assertEquals(200, result.status());
+        var rows = Json.MAPPER.readTree(result.body());
+        assertEquals(2, rows.size());
+        assertEquals(2, rows.get(0).get("value").asInt());
+        assertEquals(3, rows.get(1).get("value").asInt());
+        assertEquals(404, call("GET", "/api/devices/" + UUID.randomUUID() + "/telemetry/latest", null).status());
+    }
+
+    @Test
+    void validatesPhoneOnRegistrationAndProfileUpdate() throws Exception {
+        var invalid = call("POST", "/api/users", """
+                {"email":"phone@example.org","password":"password123","phone":"876"}
+                """);
+        assertEquals(400, invalid.status());
+        assertTrue(json(invalid).containsKey("phone"));
+        var created = call("POST", "/api/users", """
+                {"email":"phone@example.org","password":"password123"}
+                """);
+        assertEquals(201, created.status());
+        String path = "/api/users/" + json(created).get("id");
+        for (String phone : new String[]{"+79001234567", "89001234567"}) {
+            var updated = call("PUT", path, "{\"phone\":\"" + phone + "\"}");
+            assertEquals(200, updated.status());
+            assertEquals(phone, json(updated).get("phone"));
+        }
+        for (String phone : new String[]{"876", "7900123456", "790012345678", "7+9001234567", "+7 9001234567", ""}) {
+            var rejected = call("PUT", path, "{\"phone\":\"" + phone + "\"}");
+            assertEquals(400, rejected.status());
+            assertTrue(json(rejected).containsKey("phone"));
+        }
+        assertEquals("89001234567", json(call("GET", path, null)).get("phone"));
     }
 
     private UUID existingDevice() {
@@ -138,7 +175,7 @@ class ApiRouterTest {
 
     @Test
     void wrongMethodGives405() {
-        assertEquals(405, call("GET", "/api/devices", null).status());
+        assertEquals(400, call("GET", "/api/devices", null).status());
         assertEquals(405, call("PATCH", "/api/devices/" + UUID.randomUUID(), null).status());
         assertEquals(405, call("POST", "/api/users/" + UUID.randomUUID(), "{}").status());
         assertEquals(405, call("GET", "/api/telemetry", null).status());
@@ -304,7 +341,7 @@ class ApiRouterTest {
                 "{\"deviceId\":\"" + id + "\",\"time\":\"2026-11-06T12:00:00Z\",\"telemetryType\":2,\"value\":120}");
 
         assertEquals(400, r.status());
-        assertEquals("значение 120.0 нарушает правило: должно быть ≤ 100.0", json(r).get("rule_" + rule.id()));
+        assertEquals("значение 120.0 нарушает правило: должно быть <= 100.0", json(r).get("rule_" + rule.id()));
         assertTrue(telemetry.rows.isEmpty());
     }
 
@@ -326,10 +363,23 @@ class ApiRouterTest {
     }
 
     @Test
-    void passwordIsHiddenInLogs() {
-        assertEquals("{\"email\":\"a@b\",\"password\":\"***\"}",
-                ApiRouter.hidePassword("{\"email\":\"a@b\",\"password\":\"se\\\"cret\"}"));
-        assertEquals("{\"password\" : \"***\"}", ApiRouter.hidePassword("{\"password\" : \"x\"}"));
+    void loginAuthenticatesExistingHashAndReturnsId() throws Exception {
+        var created = call("POST", "/api/users",
+                "{\"email\":\"login@example.org\",\"password\":\"password123\"}");
+        var login = call("POST", "/api/login",
+                "{\"email\":\" LOGIN@example.org \",\"password\":\"password123\"}");
+        assertEquals(200, login.status());
+        assertEquals(Map.of("id", json(created).get("id")), json(login));
+    }
+
+    @Test
+    void loginRejectsWrongPasswordAndUnknownEmail() {
+        call("POST", "/api/users", "{\"email\":\"login@example.org\",\"password\":\"password123\"}");
+        assertEquals(401, call("POST", "/api/login",
+                "{\"email\":\"login@example.org\",\"password\":\"wrong\"}").status());
+        assertEquals(401, call("POST", "/api/login",
+                "{\"email\":\"missing@example.org\",\"password\":\"password123\"}").status());
+        assertEquals(400, call("POST", "/api/login", "{}").status());
     }
 
     @Test

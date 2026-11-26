@@ -3,137 +3,112 @@ package com.iotplatform.iotcore.service;
 import com.iotplatform.iotcore.dto.UserDto;
 import com.iotplatform.iotcore.dto.UserResponse;
 import com.iotplatform.iotcore.entity.UserEntity;
-import com.iotplatform.iotcore.exception.ForbiddenException;
 import com.iotplatform.iotcore.exception.UserNotFoundException;
 import com.iotplatform.iotcore.exception.ValidationException;
 import com.iotplatform.iotcore.model.UserRole;
 import com.iotplatform.iotcore.repository.UserRepository;
 
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+/**
+ * Бизнес-логика пользователей. Почта нормализуется (пробелы по краям срезаются, регистр приводится к нижнему),
+ * пароль хранится только в виде хеша.
+ */
 public class UserService {
-    private static final System.Logger LOG = System.getLogger(UserService.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
 
     private final UserRepository users;
 
+    /**
+     * Создаёт сервис.
+     *
+     * @param users хранилище пользователей
+     */
     public UserService(UserRepository users) {
         this.users = users;
+    }
+
+    public Optional<UUID> authenticate(String email, String password) {
+        Optional<UserEntity> user = users.findByEmail(normalizeEmail(email));
+        byte[] hash = user.map(UserEntity::getPasswordHash).orElse(null);
+        return PasswordHasher.matches(password, hash) ? user.map(UserEntity::getId) : Optional.empty();
     }
 
     static String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
     }
 
-    static String normalizePhone(String phone) {
-        return phone == null ? null : phone.trim();
-    }
-
-    // колонка username в БД NOT NULL, а при регистрации имя не вводится,
-    // поэтому по умолчанию берём часть почты до «@»
-    private static String defaultUsername(String email) {
-        int at = email.indexOf('@');
-        String name = (at > 0 ? email.substring(0, at) : email).trim();
-        return name.isEmpty() ? "user" : name;
-    }
-
+    /**
+     * Ищет пользователя по id.
+     *
+     * @param id идентификатор пользователя
+     * @return данные пользователя без пароля
+     * @throws UserNotFoundException если пользователя нет
+     */
     public UserResponse findById(UUID id) {
         return users.findById(id).map(this::toResponse)
                 .orElseThrow(() -> new UserNotFoundException(id));
     }
 
     /**
-     * НОВОЕ: страница пользователей (вкладка «Пользователи», только для админов).
-     * Роль запрашивающего берём из БД, а не из запроса. Не админ -> ForbiddenException (HTTP 403).
+     * Проверяет, занята ли почта.
+     *
+     * @param email почта (будет нормализована); {@code null} даёт {@code false}
+     * @return {@code true}, если пользователь с такой почтой есть
      */
-    public List<UserResponse> list(UUID requesterId, String emailQuery, int limit, int offset) {
-        UserEntity requester = users.findById(requesterId)
-                .orElseThrow(() -> new UserNotFoundException(requesterId));
-        if (requester.getRole() != UserRole.ADMIN) {
-            throw new ForbiddenException("Раздел доступен только администраторам");
-        }
-        return users.findPage(emailQuery, limit, offset).stream().map(this::toResponse).toList();
-    }
-
     public boolean existsByEmail(String email) {
         return email != null && users.existsByEmail(normalizeEmail(email));
     }
 
+    /**
+     * Ищет хеш пароля по почте.
+     *
+     * @param email почта (будет нормализована)
+     * @return хеш пароля; пустой {@code Optional}, если почта {@code null} или пользователя нет
+     */
     public Optional<byte[]> findPasswordHashByEmail(String email) {
         if (email == null) return Optional.empty();
         return users.findPasswordHashByEmail(normalizeEmail(email));
     }
 
-    // Пусто = неверная почта или пароль. Неподтверждённый аккаунт -> 400 (ValidationException).
-    // Подтверждение проверяем только после пароля, чтобы не раскрывать, есть ли такая почта.
-    public Optional<UserResponse> login(String email, String password) {
-        if (email == null || password == null) return Optional.empty();
-        Optional<UserEntity> found = users.findByEmail(normalizeEmail(email));
-        if (found.isEmpty()) {
-            PasswordHasher.hash(password); // та же задержка, чтобы по времени ответа нельзя было угадать почту
-            return Optional.empty();
-        }
-        UserEntity user = found.get();
-        if (!PasswordHasher.verify(password, user.getPasswordHash())) {
-            return Optional.empty();
-        }
-        if (!user.isConfirmed()) {
-            throw new ValidationException(Map.of("error",
-                    "Аккаунт не подтверждён. Нажмите «Зарегистрироваться», чтобы получить письмо с ID заново"));
-        }
-        LOG.log(System.Logger.Level.INFO, "Пользователь " + user.getId() + " вошёл");
-        return Optional.of(toResponse(user));
-    }
-
-    // Новый пользователь создаётся с is_confirmed = false.
-    // Почта подтверждённого аккаунта занята; почта брошенной регистрации перезаписывается.
-    public synchronized UserResponse create(UserDto dto) {
+    /**
+     * Создаёт пользователя с новым id. Роль по умолчанию {@code GUEST}, пароль хешируется.
+     *
+     * @param dto данные пользователя (обязательны почта и пароль)
+     * @return созданный пользователь
+     * @throws ValidationException если данные некорректны или почта уже занята
+     */
+    public UserResponse create(UserDto dto) {
         dto.validate(true);
         String email = normalizeEmail(dto.getEmail());
-        String phone = normalizePhone(dto.getPhone());
+        if (users.existsByEmail(email)) {
+            throw new ValidationException(Map.of("email", "пользователь с такой почтой уже существует"));
+        }
+
         UserRole role = dto.getRole() != null ? dto.getRole() : UserRole.GUEST;
-        String username = dto.getUsername() != null ? dto.getUsername() : defaultUsername(email);
-        byte[] hash = PasswordHasher.hash(dto.getPassword());
 
-        Optional<UserEntity> existing = users.findByEmail(email);
-        if (existing.isPresent()) {
-            UserEntity user = existing.get();
-            if (user.isConfirmed()) {
-                throw new ValidationException(Map.of("email", "пользователь с такой почтой уже существует"));
-            }
-            user.setUsername(username);
-            user.setPhone(phone);
-            user.setDateOfBirth(dto.getDateOfBirth());
-            user.setPasswordHash(hash);
-            user.setRole(role);
-            user.setConfirmed(false);
-            UserResponse updated = toResponse(users.save(user));
-            LOG.log(System.Logger.Level.INFO, "Брошенная регистрация " + updated.id() + " (" + email + ") перезаписана");
-            return updated;
-        }
-
+        String username = dto.getUsername() == null ? email.substring(0, email.indexOf('@')) : dto.getUsername();
         UserEntity entity = new UserEntity(UUID.randomUUID(), username, email,
-                phone, dto.getDateOfBirth(), hash, role, false);
-        UserResponse created = toResponse(users.save(entity));
-        LOG.log(System.Logger.Level.INFO, "Пользователь " + created.id() + " (" + email + ") создан, ждёт подтверждения");
-        return created;
+                dto.getPhone(), dto.getDateOfBirth(), PasswordHasher.hash(dto.getPassword()), role);
+        UserResponse response = toResponse(users.save(entity));
+        log.info("User {} created", entity.getId());
+        return response;
     }
 
-    // Подтверждение регистрации: is_confirmed = true. Нет такого пользователя -> 404.
-    public synchronized UserResponse confirm(UUID id) {
-        UserEntity user = users.findById(id)
-                .orElseThrow(() -> new UserNotFoundException(id));
-        if (!user.isConfirmed()) {
-            user.setConfirmed(true);
-            users.save(user);
-            LOG.log(System.Logger.Level.INFO, "Пользователь " + id + " подтверждён");
-        }
-        return toResponse(user);
-    }
-
+    /**
+     * Обновляет только те поля, которые переданы (не {@code null}). Почту изменить нельзя.
+     *
+     * @param id идентификатор пользователя
+     * @param dto новые значения полей
+     * @return обновлённый пользователь
+     * @throws UserNotFoundException если пользователя нет
+     * @throws ValidationException если данные некорректны или передана другая почта
+     */
     public UserResponse update(UUID id, UserDto dto) {
         dto.validate(false);
         UserEntity user = users.findById(id)
@@ -144,25 +119,30 @@ public class UserService {
         }
 
         if (dto.getUsername() != null) user.setUsername(dto.getUsername());
-        if (dto.getPhone() != null) user.setPhone(normalizePhone(dto.getPhone()));
+        if (dto.getPhone() != null) user.setPhone(dto.getPhone());
         if (dto.getDateOfBirth() != null) user.setDateOfBirth(dto.getDateOfBirth());
         if (dto.getRole() != null) user.setRole(dto.getRole());
         if (dto.getPassword() != null) user.setPasswordHash(PasswordHasher.hash(dto.getPassword()));
+        log.info("User {} updated", id);
 
-        UserResponse updated = toResponse(users.save(user));
-        LOG.log(System.Logger.Level.INFO, "Пользователь " + id + " обновлён");
-        return updated;
+        return toResponse(dto.getPassword() == null ? users.saveProfile(user) : users.save(user));
     }
 
+    /**
+     * Удаляет пользователя.
+     *
+     * @param id идентификатор пользователя
+     * @throws UserNotFoundException если пользователя нет
+     */
     public void delete(UUID id) {
         if (!users.deleteById(id)) {
             throw new UserNotFoundException(id);
         }
-        LOG.log(System.Logger.Level.INFO, "Пользователь " + id + " удалён");
+        log.info("User {} deleted", id);
     }
 
     private UserResponse toResponse(UserEntity e) {
         return new UserResponse(e.getId(), e.getUsername(), e.getEmail(),
-                e.getPhone(), e.getDateOfBirth(), e.getRole(), e.isConfirmed());
+                e.getPhone(), e.getDateOfBirth(), e.getRole());
     }
 }

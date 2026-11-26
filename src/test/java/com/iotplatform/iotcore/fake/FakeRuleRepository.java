@@ -6,75 +6,57 @@ import com.iotplatform.iotcore.repository.RuleRepository;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
-/** Правила в памяти: хранит сами правила и связь устройство -> правила. */
+/** Правила в памяти: устройство -> список правил. */
 public class FakeRuleRepository implements RuleRepository {
+    public final Map<UUID, List<RuleEntity>> byDevice = new HashMap<>();
+    private final Map<UUID, RuleEntity> all = new LinkedHashMap<>();
 
-    // Хранилище всех правил по их ID
-    public final Map<UUID, RuleEntity> allRules = new HashMap<>();
-    // Связь: ID устройства -> список ID правил
-    public final Map<UUID, List<UUID>> deviceToRules = new HashMap<>();
-
-    // Вспомогательный метод для тестов
     public RuleEntity add(UUID deviceId, int telemetryType, RuleOperator op, double value, boolean strict) {
         RuleEntity r = new RuleEntity(UUID.randomUUID(), (short) telemetryType, op, value, strict);
-        save(r);
-        attachToDevice(r.id(), deviceId);
+        all.put(r.id(), r);
+        byDevice.computeIfAbsent(deviceId, k -> new ArrayList<>()).add(r);
         return r;
     }
 
     @Override
     public RuleEntity save(RuleEntity rule) {
-        allRules.put(rule.id(), rule);
+        all.put(rule.id(), rule);
         return rule;
     }
 
     @Override
     public Optional<RuleEntity> findById(UUID id) {
-        return Optional.ofNullable(allRules.get(id));
+        return Optional.ofNullable(all.get(id));
     }
 
     @Override
     public boolean deleteById(UUID id) {
-        RuleEntity removed = allRules.remove(id);
-        if (removed != null) {
-            // Удаляем связь с устройством, если она была
-            for (List<UUID> rules : deviceToRules.values()) {
-                rules.remove(id);
-            }
-            return true;
-        }
-        return false;
+        byDevice.values().forEach(list -> list.removeIf(r -> r.id().equals(id)));
+        return all.remove(id) != null;
     }
 
     @Override
     public void attachToDevice(UUID ruleId, UUID deviceId) {
-        deviceToRules.computeIfAbsent(deviceId, k -> new ArrayList<>()).add(ruleId);
+        RuleEntity rule = all.get(ruleId);
+        if (rule == null) return;
+        List<RuleEntity> list = byDevice.computeIfAbsent(deviceId, k -> new ArrayList<>());
+        if (list.stream().noneMatch(r -> r.id().equals(ruleId))) list.add(rule);
     }
 
     @Override
     public boolean detachFromDevice(UUID ruleId, UUID deviceId) {
-        List<UUID> rules = deviceToRules.get(deviceId);
-        if (rules != null) {
-            return rules.remove(ruleId);
-        }
-        return false;
+        List<RuleEntity> list = byDevice.get(deviceId);
+        return list != null && list.removeIf(r -> r.id().equals(ruleId));
     }
 
     @Override
     public List<RuleEntity> findByDeviceId(UUID deviceId) {
-        List<UUID> ruleIds = deviceToRules.get(deviceId);
-        if (ruleIds == null) return List.of();
-
-        return ruleIds.stream()
-                .map(allRules::get)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        return byDevice.getOrDefault(deviceId, List.of());
     }
 }

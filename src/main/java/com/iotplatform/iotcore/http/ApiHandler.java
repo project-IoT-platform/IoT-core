@@ -12,9 +12,11 @@ import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 final class ApiHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
-    private static final System.Logger LOG = System.getLogger(ApiHandler.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(ApiHandler.class);
 
     private final ApiRouter router;
 
@@ -26,8 +28,7 @@ final class ApiHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest request) {
         // есл кл шлт поломанный http
         if (!request.decoderResult().isSuccess()) {
-            LOG.log(System.Logger.Level.WARNING, "Некорректный HTTP-запрос от " + ctx.channel().remoteAddress()
-                    + ": " + request.decoderResult().cause());
+            log.warn("Malformed HTTP request from {}: {}", ctx.channel().remoteAddress(), request.decoderResult().cause());
             send(ctx, request, new ApiRouter.Response(400, null), false);
             return;
         }
@@ -35,7 +36,7 @@ final class ApiHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
         byte[] body = new byte[request.content().readableBytes()];
         request.content().readBytes(body);
 
-        ApiRouter.Response response = router.handle(request.method().name(), request.uri(), body);
+        ApiRouter.Response response = router.handle(request.method().name(), request.uri(), body, request.headers().get(HttpHeaderNames.AUTHORIZATION));
         send(ctx, request, response, HttpUtil.isKeepAlive(request));
     }
 
@@ -69,7 +70,7 @@ final class ApiHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        LOG.log(System.Logger.Level.ERROR, "Ошибка в соединении", cause);
+        log.error("Connection error", cause);
         ctx.close();
     }
 }
